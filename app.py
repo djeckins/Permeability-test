@@ -81,6 +81,30 @@ _STATUS_COLS = [
     "ionization_status",
 ]
 
+# Numeric column → its status column (for direct cell colouring)
+_NUMERIC_STATUS = {
+    "mw":                    "mw_status",
+    "logd":                  "logd_status",
+    "tpsa":                  "tpsa_status",
+    "hbd":                   "hbd_status",
+    "hba":                   "hba_status",
+    "rotb":                  "rotb_status",
+    "hac":                   "hac_status",
+    "formal_charge":         "formal_charge_status",
+    "fraction_unionized_pH5_5": "ionization_status",
+}
+
+# Columns shown in the Streamlit table (status cols hidden; SMILES at end and narrow)
+_DISPLAY_COLS = [
+    "name", "parse_status",
+    "mw", "clogp", "logd", "logd_source",
+    "tpsa", "hbd", "hba", "rotb", "hac", "formal_charge",
+    "pka_source", "predicted_pka", "predicted_pka_type",
+    "fraction_unionized_pH5_5", "mean_charge_pH5_5", "ionization_class",
+    "final_result",
+    "input_smiles", "canonical_smiles",
+]
+
 _CELL_CSS = {
     "optimal":    "background-color:#c8e6c9;color:#1b5e20",
     "suboptimal": "background-color:#fff9c4;color:#e65100",
@@ -105,12 +129,26 @@ _XLSX_FILLS = {
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _style_df(df: pd.DataFrame):
-    cols = [c for c in _STATUS_COLS + ["final_result"] if c in df.columns]
-
     def _color(val):
         return _CELL_CSS.get(str(val), "")
 
-    return df.style.map(_color, subset=cols)
+    styler = df.style
+
+    # Colour final_result cell
+    if "final_result" in df.columns:
+        styler = styler.map(_color, subset=["final_result"])
+
+    # Colour numeric cells directly based on their status column
+    for num_col, status_col in _NUMERIC_STATUS.items():
+        if num_col in df.columns and status_col in df.columns:
+            styler = styler.apply(
+                lambda col, sc=status_col: [
+                    _CELL_CSS.get(str(df.at[i, sc]), "") for i in col.index
+                ],
+                subset=[num_col],
+            )
+
+    return styler
 
 
 def _build_xlsx(df: pd.DataFrame) -> bytes:
@@ -270,11 +308,17 @@ if run:
     # ── Results table ─────────────────────────────────────────────────────────
     st.markdown("<div style='height:0.8rem'/>", unsafe_allow_html=True)
     st.markdown("### Results")
+    display_order = [c for c in _DISPLAY_COLS if c in df.columns]
     st.dataframe(
         _style_df(df),
         use_container_width=True,
         hide_index=True,
         height=min(40 + len(df) * 36, 600),
+        column_order=display_order,
+        column_config={
+            "input_smiles": st.column_config.TextColumn("SMILES", width="small"),
+            "canonical_smiles": st.column_config.TextColumn("Canonical SMILES", width="small"),
+        },
     )
 
     # ── Download ──────────────────────────────────────────────────────────────

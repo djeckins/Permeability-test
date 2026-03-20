@@ -46,8 +46,8 @@ _BASE_GROUPS: frozenset[str] = frozenset(
         "Anilines_primary",        # Ar-NH2,          pKa ~3.9 (weak base)
         "Anilines_secondary",      # Ar-NHR,          pKa ~4.3
         "Anilines_tertiary",       # Ar-NR2,          pKa ~4.2
-        "Aromatic_nitrogen_unprotonated",  # pyridine-type,  pKa ~4.4
-        "Aromatic_nitrogen_protonated",    # protonated aromatic N, pKa ~7.2
+        "Aromatic_nitrogen_unprotonated",   # pyridine-type,  pKa ~4.4
+        "*Aromatic_nitrogen_protonated",    # protonated aromatic N, pKa ~7.2 (dimorphite_dl v2 name has * prefix)
         "Amines_primary_secondary_tertiary",  # aliphatic N, pKa ~8.2
         "Primary_hydroxyl_amine",  # NH2OH,           pKa ~4.0
     }
@@ -119,6 +119,19 @@ class IonizationResult:
         """Fraction neutral of the dominant (closest-to-pH) group."""
         g = self.dominant_group
         return g.fraction_neutral if g else None
+
+    @property
+    def fraction_neutral_total(self) -> float:
+        """Fraction of molecules where ALL ionizable groups are simultaneously neutral.
+
+        Computed as the product of per-group fraction_neutral values, which
+        is the correct approximation for independent equilibria.  For a single
+        ionizable group this equals fraction_neutral_dominant.
+        """
+        result = 1.0
+        for g in self.groups:
+            result *= g.fraction_neutral
+        return result
 
     @property
     def ionization_class(self) -> str:
