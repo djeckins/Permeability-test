@@ -1,12 +1,12 @@
 """Screen molecule records against epidermal barrier passage criteria."""
 from __future__ import annotations
 
-import math
 from typing import Any
 
 import pandas as pd
 
 from epidermal_barrier_screen.descriptors import calculate
+from epidermal_barrier_screen.ionization import PH_SC, ionize
 
 # ---------------------------------------------------------------------------
 # Criterion definitions
@@ -36,19 +36,6 @@ _FAIL_THRESHOLDS = {
     "rotb":         15,
     "hac":          50,
 }
-
-_PH_SC = 5.5  # stratum corneum pH used for fraction-unionized estimate
-
-
-def _fraction_unionized(pka: float, ph: float = _PH_SC) -> float:
-    """Fraction in neutral (non-ionized) form assuming the pKa is for an acid.
-
-    Uses Henderson-Hasselbalch: neutral_fraction = 1 / (1 + 10^(pH - pKa))
-    """
-    try:
-        return 1.0 / (1.0 + 10 ** (ph - pka))
-    except (OverflowError, ZeroDivisionError):
-        return 0.0
 
 
 def _mw_status(v: float) -> str:
@@ -169,11 +156,33 @@ def screen_records(records: list[dict[str, Any]]) -> pd.DataFrame:
             row["logd"] = desc["clogp"]
             row["logd_source"] = "clogp_proxy"
 
-        # Fraction unionized at pH 5.5
-        pka = rec.get("input_pka")
-        row["fraction_unionized_pH5_5"] = (
-            round(_fraction_unionized(pka), 4) if pka is not None else None
-        )
+        # ── Ionization at pH 5.5 ────────────────────────────────────────────
+        ion = ionize(mol, ph=PH_SC)
+
+        input_pka = rec.get("input_pka")
+        if input_pka is not None:
+            # Use the experimentally supplied pKa (acid assumed by convention)
+            from epidermal_barrier_screen.ionization import _hhb_acid
+            f_neutral, _ = _hhb_acid(input_pka, PH_SC)
+            row["pka_source"] = "input"
+            row["predicted_pka"] = None
+            row["predicted_pka_type"] = None
+            row["fraction_unionized_pH5_5"] = round(f_neutral, 4)
+        elif ion.dominant_group is not None:
+            row["pka_source"] = "predicted"
+            row["predicted_pka"] = ion.dominant_pka
+            row["predicted_pka_type"] = ion.dominant_type
+            row["fraction_unionized_pH5_5"] = round(
+                ion.fraction_neutral_dominant, 4
+            )
+        else:
+            row["pka_source"] = "none"
+            row["predicted_pka"] = None
+            row["predicted_pka_type"] = None
+            row["fraction_unionized_pH5_5"] = 1.0  # non-ionizable → always neutral
+
+        row["mean_charge_pH5_5"] = round(ion.mean_charge, 4)
+        row["ionization_class"] = ion.ionization_class
 
         # Per-criterion statuses
         row["mw_status"] = _mw_status(desc["mw"])
@@ -213,9 +222,16 @@ def screen_records(records: list[dict[str, Any]]) -> pd.DataFrame:
         "rotb",
         "hac",
         "formal_charge",
+        # ── pKa / ionization ────────────────────────────────────────────────
         "input_pka",
         "input_logd_7_4",
+        "pka_source",
+        "predicted_pka",
+        "predicted_pka_type",
         "fraction_unionized_pH5_5",
+        "mean_charge_pH5_5",
+        "ionization_class",
+        # ── Per-criterion statuses ───────────────────────────────────────────
         "mw_status",
         "logd_status",
         "tpsa_status",
