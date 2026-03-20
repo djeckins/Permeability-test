@@ -9,33 +9,9 @@ from epidermal_barrier_screen.descriptors import calculate
 from epidermal_barrier_screen.ionization import PH_SC, ionize
 
 # ---------------------------------------------------------------------------
-# Criterion definitions
-# Each criterion is (column, (opt_min, opt_max), (sub_min, sub_max))
-# None means unbounded in that direction.
+# Per-criterion status functions
+# Each returns one of: "optimal", "suboptimal", "poor"
 # ---------------------------------------------------------------------------
-_CRITERIA: list[tuple[str, tuple, tuple]] = [
-    # (descriptor_col, optimal_range, suboptimal_range)
-    # ranges: (low_inclusive, high_exclusive) or None for no bound
-    ("mw",           (None, 300),    (300,  500)),
-    ("logd",         (1,    3),      (None, None)),   # handled specially below
-    ("tpsa",         (None, 60),     (60,   130)),
-    ("hbd",          (0,    3),      (3,    5)),       # 0-3 optimal, 4-5 suboptimal
-    ("hba",          (2,    8),      (8,    10)),
-    ("rotb",         (None, 10),     (10,   15)),
-    ("hac",          (None, 30),     (30,   50)),
-    ("formal_charge",(0,    0),      (-1,   1)),       # handled specially below
-]
-
-_FAIL_THRESHOLDS = {
-    "mw":           500,
-    "logd_lo":      0.5,  # below 0.5 is fail
-    "logd_hi":      5,    # above 5 is fail
-    "tpsa":         130,
-    "hbd":          5,
-    "hba":          10,
-    "rotb":         15,
-    "hac":          50,
-}
 
 
 def _mw_status(v: float) -> str:
@@ -43,7 +19,7 @@ def _mw_status(v: float) -> str:
         return "optimal"
     if v <= 500:
         return "suboptimal"
-    return "fail"
+    return "poor"
 
 
 def _logd_status(v: float) -> str:
@@ -51,7 +27,7 @@ def _logd_status(v: float) -> str:
         return "optimal"
     if 0.5 <= v < 1.0 or 3.0 < v <= 5.0:
         return "suboptimal"
-    return "fail"
+    return "poor"
 
 
 def _tpsa_status(v: float) -> str:
@@ -59,7 +35,7 @@ def _tpsa_status(v: float) -> str:
         return "optimal"
     if v <= 130:
         return "suboptimal"
-    return "fail"
+    return "poor"
 
 
 def _hbd_status(v: int) -> str:
@@ -67,7 +43,7 @@ def _hbd_status(v: int) -> str:
         return "optimal"
     if 4 <= v <= 5:
         return "suboptimal"
-    return "fail"
+    return "poor"
 
 
 def _hba_status(v: int) -> str:
@@ -75,7 +51,7 @@ def _hba_status(v: int) -> str:
         return "optimal"
     if 8 < v <= 10:
         return "suboptimal"
-    return "fail"
+    return "poor"
 
 
 def _rotb_status(v: int) -> str:
@@ -83,7 +59,7 @@ def _rotb_status(v: int) -> str:
         return "optimal"
     if v <= 15:
         return "suboptimal"
-    return "fail"
+    return "poor"
 
 
 def _hac_status(v: int) -> str:
@@ -91,7 +67,7 @@ def _hac_status(v: int) -> str:
         return "optimal"
     if v <= 50:
         return "suboptimal"
-    return "fail"
+    return "poor"
 
 
 def _charge_status(v: int) -> str:
@@ -99,19 +75,43 @@ def _charge_status(v: int) -> str:
         return "optimal"
     if v in (-1, 1):
         return "suboptimal"
-    return "fail"
+    return "poor"
+
+
+def _ionization_status(fraction_unionized: float) -> str:
+    """Classify ionization based on fraction unionized at pH 5.5.
+
+    A high fraction unionized means the molecule is mostly neutral at the
+    stratum corneum surface pH, which is favourable for passive permeation.
+
+    - optimal:   >= 0.8  (mostly neutral)
+    - suboptimal: 0.5 – 0.8  (partially ionized)
+    - poor:       < 0.5  (majority ionized)
+    """
+    if fraction_unionized >= 0.8:
+        return "optimal"
+    if fraction_unionized >= 0.5:
+        return "suboptimal"
+    return "poor"
+
+
+# ---------------------------------------------------------------------------
+# Overall result
+# ---------------------------------------------------------------------------
 
 
 def _final_result(statuses: list[str]) -> str:
-    fail_count = statuses.count("fail")
-    sub_count = statuses.count("suboptimal")
-    if fail_count >= 2:
-        return "enhancers_likely_needed"
-    if fail_count == 1:
-        return "borderline"
-    if sub_count > 0:
-        return "pass_with_manual_review"
-    return "pass"
+    """Derive overall PASS / BORDERLINE / FAIL from per-criterion statuses.
+
+    PASS       – all criteria optimal (no flags)
+    BORDERLINE – one or more suboptimal, but no poor
+    FAIL       – one or more poor (strong failure in a core parameter)
+    """
+    if "poor" in statuses:
+        return "FAIL"
+    if "suboptimal" in statuses:
+        return "BORDERLINE"
+    return "PASS"
 
 
 def screen_records(records: list[dict[str, Any]]) -> pd.DataFrame:
@@ -125,7 +125,7 @@ def screen_records(records: list[dict[str, Any]]) -> pd.DataFrame:
     Returns
     -------
     pandas.DataFrame with descriptor columns, per-criterion status columns, and
-    a ``final_result`` column.
+    a ``final_result`` column (PASS / BORDERLINE / FAIL).
     """
     rows = []
     for rec in records:
@@ -184,7 +184,7 @@ def screen_records(records: list[dict[str, Any]]) -> pd.DataFrame:
         row["mean_charge_pH5_5"] = round(ion.mean_charge, 4)
         row["ionization_class"] = ion.ionization_class
 
-        # Per-criterion statuses
+        # ── Per-criterion statuses ───────────────────────────────────────────
         row["mw_status"] = _mw_status(desc["mw"])
         row["logd_status"] = _logd_status(row["logd"])
         row["tpsa_status"] = _tpsa_status(desc["tpsa"])
@@ -193,6 +193,7 @@ def screen_records(records: list[dict[str, Any]]) -> pd.DataFrame:
         row["rotb_status"] = _rotb_status(desc["rotb"])
         row["hac_status"] = _hac_status(desc["hac"])
         row["formal_charge_status"] = _charge_status(desc["formal_charge"])
+        row["ionization_status"] = _ionization_status(row["fraction_unionized_pH5_5"])
 
         statuses = [
             row["mw_status"],
@@ -203,6 +204,7 @@ def screen_records(records: list[dict[str, Any]]) -> pd.DataFrame:
             row["rotb_status"],
             row["hac_status"],
             row["formal_charge_status"],
+            row["ionization_status"],  # mandatory criterion
         ]
         row["final_result"] = _final_result(statuses)
         rows.append(row)
@@ -240,6 +242,7 @@ def screen_records(records: list[dict[str, Any]]) -> pd.DataFrame:
         "rotb_status",
         "hac_status",
         "formal_charge_status",
+        "ionization_status",
         "final_result",
     ]
 

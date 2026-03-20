@@ -58,7 +58,7 @@ if run:
 
     c1, c2, c3 = st.columns(3)
     c1.metric('Total records', len(df))
-    c2.metric('Pass / pass with review', int(df['final_result'].isin(['pass', 'pass_with_manual_review']).sum()))
+    c2.metric('Pass', int((df['final_result'] == 'PASS').sum()))
     c3.metric('Invalid', int((df['parse_status'] != 'ok').sum()))
 
     csv_bytes = df.to_csv(index=False).encode('utf-8')
@@ -73,22 +73,27 @@ if run:
 with st.expander('Criteria used by the app'):
     st.markdown(
         """
-        - **MW**: optimal `< 300`, suboptimal `300–500`
-        - **logP / logD 7.4**: optimal `1–3`, suboptimal `0.5–1` or `3–5`
-        - **TPSA**: optimal `< 60`, suboptimal `60–130`
-        - **HBD**: optimal `0–3`, suboptimal `4–5`
-        - **HBA**: optimal `2–8`, suboptimal `8–10`
-        - **RotB**: optimal `< 10`, suboptimal `10–15`
-        - **HAC**: optimal `< 30`, suboptimal `30–50`
-        - **Formal charge**: optimal `0`, suboptimal `±1`
-        - **pKa / ionization** (pH 5.5): predicted from structure using
-          **Dimorphite-DL** (Ropp et al., 2019, *J. Cheminformatics* 11:14) —
-          a published, validated engine with 40+ SMARTS patterns and
-          experimentally derived pKa values (mean ± σ from curated literature).
-          Overridden by `pKa` / `input_pka` SDF property when present.
-          Reports `predicted_pka`, `predicted_pka_type` (acid/base),
-          `fraction_unionized_pH5_5`, `mean_charge_pH5_5`, and
-          `ionization_class`
-          (non_ionizable / neutral / acid / base / zwitterion).
+        Per-criterion classification: **optimal** / **suboptimal** / **poor**.
+        Overall result: **PASS** (all optimal) · **BORDERLINE** (≥1 suboptimal, no poor) · **FAIL** (≥1 poor).
+
+        | Criterion | Optimal | Suboptimal | Poor |
+        |---|---|---|---|
+        | **MW** | < 300 Da | 300–500 Da | > 500 Da |
+        | **LogD / cLogP** | 1–3 | 0.5–1 or 3–5 | < 0.5 or > 5 |
+        | **TPSA** | < 60 Å² | 60–130 Å² | > 130 Å² |
+        | **HBD** | 0–3 | 4–5 | > 5 |
+        | **HBA** | 2–8 | 8–10 | > 10 |
+        | **RotB** | < 10 | 10–15 | > 15 |
+        | **HAC** | < 30 | 30–50 | > 50 |
+        | **Formal charge** | 0 | ±1 | ≥ ±2 |
+        | **Ionization (pH 5.5)** | f_unionized ≥ 0.8 | 0.5–0.8 | < 0.5 |
+
+        Ionization is a **mandatory** criterion: a molecule that is mostly ionised
+        at the stratum corneum surface pH (5.5) fails passive permeation regardless
+        of other properties.
+
+        pKa predicted from structure using **Dimorphite-DL** (Ropp et al., 2019,
+        *J. Cheminformatics* 11:14) — 40+ SMARTS patterns with experimentally
+        derived pKa values. Overridden by `pKa` / `input_pka` SDF property when present.
         """
     )
