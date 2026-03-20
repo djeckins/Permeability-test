@@ -18,7 +18,7 @@ def calculate(mol: Mol) -> dict:
     dict with keys: mw, clogp, tpsa, hbd, hba, rotb, hac, formal_charge
     """
     return {
-        "mw": round(Descriptors.ExactMolWt(mol), 4),
+        "mw": round(Descriptors.MolWt(mol), 4),
         "clogp": round(Descriptors.MolLogP(mol), 4),
         "tpsa": round(Descriptors.TPSA(mol), 4),
         "hbd": rdMolDescriptors.CalcNumHBD(mol),

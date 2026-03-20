@@ -1,6 +1,7 @@
 """Screen molecule records against epidermal barrier passage criteria."""
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import pandas as pd
@@ -147,17 +148,27 @@ def screen_records(records: list[dict[str, Any]]) -> pd.DataFrame:
         desc = calculate(mol)
         row.update(desc)
 
-        # Determine the logD value to use
+        # ── Ionization at pH 5.5 (computed first; needed for logD) ──────────
+        ion = ionize(mol, ph=PH_SC)
+
+        # ── logD at pH 5.5 (Scherrer equation) ──────────────────────────────
+        # logD(pH) = logP + Σ log₁₀(f_neutral_i) over all ionizable groups.
+        # If the user supplies an experimental logD (at pH 7.4), prefer that.
         input_logd = rec.get("input_logd_7_4")
         if input_logd is not None:
             row["logd"] = input_logd
             row["logd_source"] = "input_logd_7_4"
         else:
-            row["logd"] = desc["clogp"]
-            row["logd_source"] = "clogp_proxy"
-
-        # ── Ionization at pH 5.5 ────────────────────────────────────────────
-        ion = ionize(mol, ph=PH_SC)
+            clogp = desc["clogp"]
+            if ion.groups:
+                log_f_sum = sum(
+                    math.log10(max(g.fraction_neutral, 1e-10))
+                    for g in ion.groups
+                )
+                row["logd"] = round(clogp + log_f_sum, 4)
+            else:
+                row["logd"] = clogp  # non-ionizable: logD = logP
+            row["logd_source"] = "logd_pH5_5_predicted"
 
         input_pka = rec.get("input_pka")
         if input_pka is not None:

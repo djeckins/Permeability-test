@@ -74,7 +74,9 @@ with st.expander('Criteria used by the app'):
     st.markdown(
         """
         - **MW**: optimal `< 300`, suboptimal `300–500`
-        - **logP / logD 7.4**: optimal `1–3`, suboptimal `0.5–1` or `3–5`
+        - **logD (pH 5.5)**: optimal `1–3`, suboptimal `0.5–1` or `3–5`;
+          computed as `logD = clogP + Σ log₁₀(f_neutral_i)` (Scherrer equation)
+          using Dimorphite-DL ionization; overridden by `input_logD_7_4` SDF property
         - **TPSA**: optimal `< 60`, suboptimal `60–130`
         - **HBD**: optimal `0–3`, suboptimal `4–5`
         - **HBA**: optimal `2–8`, suboptimal `8–10`
