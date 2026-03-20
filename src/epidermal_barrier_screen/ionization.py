@@ -211,6 +211,35 @@ def _get_detector():
 _get_detector._instance = None  # type: ignore[attr-defined]
 
 
+# ---------------------------------------------------------------------------
+# pKaPredict integration  (molecule-specific ML pKa refinement)
+# ---------------------------------------------------------------------------
+
+
+def _get_pka_model():
+    """Lazily load (and cache) the pKaPredict LGBMRegressor model."""
+    if _get_pka_model._cache is None:
+        from pkapredict import load_model  # type: ignore[import]
+
+        model = load_model()
+        _get_pka_model._cache = (model, model.feature_name_)
+    return _get_pka_model._cache
+
+
+_get_pka_model._cache = None  # type: ignore[attr-defined]
+
+
+def _ml_pka(smiles: str) -> float | None:
+    """Return a molecule-specific pKa prediction from pKaPredict, or *None* on failure."""
+    try:
+        from pkapredict import predict_pKa  # type: ignore[import]
+
+        model, feat = _get_pka_model()
+        return float(predict_pKa(smiles, model, feat))
+    except Exception:
+        return None
+
+
 def ionize(mol: Chem.Mol, ph: float = PH_SC) -> IonizationResult:
     """Predict the ionization state of *mol* at *ph*.
 
@@ -260,13 +289,25 @@ def ionize(mol: Chem.Mol, ph: float = PH_SC) -> IonizationResult:
         )
 
         for pka_datum in site.pkas:
+            pka = pka_datum.mean
+
+            # Skip groups that are effectively always neutral (contribute ≈1.0 to
+            # the fraction_neutral product and carry no ionization information):
+            #   • ACID  with pKa > 12 – never deprotonated at physiological pH
+            #     (e.g. Alcohol pKa≈14.8, *Amide pKa≈12.0)
+            #   • BASE  with pKa < 1  – never protonated at physiological pH
+            # Note: BASE groups with pKa > 12 (e.g. guanidinium pKa≈12.0) are
+            # kept because they are always charged, which DOES affect ionization.
+            if ion_type == "acid" and pka > 12.0:
+                continue
+            if ion_type == "base" and pka < 1.0:
+                continue
+
             # Resolve the actual heavy-atom index this pKa datum modifies
             atom_idx = site.idxs_match[pka_datum.idx_site]
             if atom_idx in claimed_atoms:
                 continue
             claimed_atoms.add(atom_idx)
-
-            pka = pka_datum.mean
 
             if ion_type == "acid":
                 f_neutral, m_charge = _hhb_acid(pka, ph)
@@ -282,5 +323,27 @@ def ionize(mol: Chem.Mol, ph: float = PH_SC) -> IonizationResult:
                     mean_charge=m_charge,
                 )
             )
+
+    # ── pKaPredict refinement ────────────────────────────────────────────────
+    # Dimorphite-DL assigns category-level mean pKa values (all carboxylic
+    # acids → 3.46, all aliphatic amines → 8.16, etc.).  Where possible, we
+    # replace the pKa of the *most influential* ionizable group with a
+    # molecule-specific prediction from the pKaPredict LGBMRegressor model,
+    # which is trained on RDKit descriptors and gives distinct values per
+    # molecule.
+    #
+    # Strategy: pKaPredict outputs a single pKa per molecule.  We assign that
+    # value to the group whose Dimorphite-DL pKa is numerically closest to the
+    # ML prediction (most likely to refer to the same ionisation event), then
+    # recompute its fraction_neutral and mean_charge via Henderson-Hasselbalch.
+    if result.groups:
+        ml = _ml_pka(smiles)
+        if ml is not None:
+            target = min(result.groups, key=lambda g: abs(g.pka - ml))
+            target.pka = round(ml, 3)
+            if target.ion_type == "acid":
+                target.fraction_neutral, target.mean_charge = _hhb_acid(ml, ph)
+            else:
+                target.fraction_neutral, target.mean_charge = _hhb_base(ml, ph)
 
     return result
