@@ -85,6 +85,8 @@ class IonizationResult:
     ph: float
     #: all ionizable groups detected
     groups: list[IonizableGroup] = field(default_factory=list)
+    #: True when the pKaPredict ML model successfully refined at least one group pKa
+    pka_ml_used: bool = False
 
     # ── Summary properties ─────────────────────────────────────────────────
 
@@ -230,13 +232,21 @@ _get_pka_model._cache = None  # type: ignore[attr-defined]
 
 
 def _ml_pka(smiles: str) -> float | None:
-    """Return a molecule-specific pKa prediction from pKaPredict, or *None* on failure."""
+    """Return a molecule-specific pKa prediction from pKaPredict, or *None* on failure.
+
+    Failures are logged to stderr so they are visible in the Streamlit terminal
+    instead of being silently swallowed.
+    """
+    import sys
+
     try:
         from pkapredict import predict_pKa  # type: ignore[import]
 
         model, feat = _get_pka_model()
-        return float(predict_pKa(smiles, model, feat))
-    except Exception:
+        val = float(predict_pKa(smiles, model, feat))
+        return val
+    except Exception as exc:
+        print(f"[pKaPredict] WARNING: prediction failed for {smiles!r}: {exc}", file=sys.stderr)
         return None
 
 
@@ -345,5 +355,6 @@ def ionize(mol: Chem.Mol, ph: float = PH_SC) -> IonizationResult:
                 target.fraction_neutral, target.mean_charge = _hhb_acid(ml, ph)
             else:
                 target.fraction_neutral, target.mean_charge = _hhb_base(ml, ph)
+            result.pka_ml_used = True
 
     return result

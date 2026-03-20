@@ -169,7 +169,7 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
             row["predicted_pka_type"] = ion_type
             row["fraction_unionized_pH5_5"] = round(f_neutral, 4)
         elif ion.dominant_group is not None:
-            row["pka_source"] = "predicted"
+            row["pka_source"] = "predicted_ml" if ion.pka_ml_used else "predicted_dl"
             row["predicted_pka"] = ion.dominant_pka
             row["predicted_pka_type"] = ion.dominant_type
             row["fraction_unionized_pH5_5"] = round(ion.fraction_neutral_total, 4)
