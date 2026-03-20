@@ -64,8 +64,10 @@ def main(argv: list[str] | None = None) -> None:
     print(f"  CSV  -> {csv_path}")
     print(f"  XLSX -> {xlsx_path}")
 
-    pass_count = df["final_result"].isin(["pass", "pass_with_manual_review"]).sum()
-    print(f"  Pass / pass-with-review: {pass_count}")
+    pass_count = (df["final_result"] == "PASS").sum()
+    borderline_count = (df["final_result"] == "BORDERLINE").sum()
+    fail_count = (df["final_result"] == "FAIL").sum()
+    print(f"  PASS: {pass_count}  BORDERLINE: {borderline_count}  FAIL: {fail_count}")
     invalid_count = (df["parse_status"] != "ok").sum()
     if invalid_count:
         print(f"  Invalid (could not parse): {invalid_count}", file=sys.stderr)
