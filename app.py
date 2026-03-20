@@ -81,10 +81,14 @@ with st.expander('Criteria used by the app'):
         - **RotB**: optimal `< 10`, suboptimal `10–15`
         - **HAC**: optimal `< 30`, suboptimal `30–50`
         - **Formal charge**: optimal `0`, suboptimal `±1`
-        - **pKa / ionization** (pH 5.5): predicted from structure using SMARTS-based
-          functional-group rules; overridden by `pKa` / `input_pka` SDF property when present.
-          Reports `predicted_pka`, `predicted_pka_type` (acid/base), `fraction_unionized_pH5_5`,
-          `mean_charge_pH5_5`, and `ionization_class`
+        - **pKa / ionization** (pH 5.5): predicted from structure using
+          **Dimorphite-DL** (Ropp et al., 2019, *J. Cheminformatics* 11:14) —
+          a published, validated engine with 40+ SMARTS patterns and
+          experimentally derived pKa values (mean ± σ from curated literature).
+          Overridden by `pKa` / `input_pka` SDF property when present.
+          Reports `predicted_pka`, `predicted_pka_type` (acid/base),
+          `fraction_unionized_pH5_5`, `mean_charge_pH5_5`, and
+          `ionization_class`
           (non_ionizable / neutral / acid / base / zwitterion).
         """
     )

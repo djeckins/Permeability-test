@@ -13,6 +13,7 @@ dependencies = [
   "pandas",
   "openpyxl",
   "rdkit",
+  "dimorphite_dl",
 ]
 
 [tool.setuptools]
