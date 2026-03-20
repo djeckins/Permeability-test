@@ -161,20 +161,23 @@ def screen_records(records: list[dict[str, Any]]) -> pd.DataFrame:
 
         input_pka = rec.get("input_pka")
         if input_pka is not None:
-            # Use the experimentally supplied pKa (acid assumed by convention)
-            from epidermal_barrier_screen.ionization import _hhb_acid
-            f_neutral, _ = _hhb_acid(input_pka, PH_SC)
+            # Use the experimentally supplied pKa; acid vs base determined from predicted ionization
+            ion_type = ion.dominant_type if ion.dominant_group is not None else "acid"
+            if ion_type == "base":
+                from epidermal_barrier_screen.ionization import _hhb_base
+                f_neutral, _ = _hhb_base(input_pka, PH_SC)
+            else:
+                from epidermal_barrier_screen.ionization import _hhb_acid
+                f_neutral, _ = _hhb_acid(input_pka, PH_SC)
             row["pka_source"] = "input"
             row["predicted_pka"] = None
-            row["predicted_pka_type"] = None
+            row["predicted_pka_type"] = ion_type
             row["fraction_unionized_pH5_5"] = round(f_neutral, 4)
         elif ion.dominant_group is not None:
             row["pka_source"] = "predicted"
             row["predicted_pka"] = ion.dominant_pka
             row["predicted_pka_type"] = ion.dominant_type
-            row["fraction_unionized_pH5_5"] = round(
-                ion.fraction_neutral_dominant, 4
-            )
+            row["fraction_unionized_pH5_5"] = round(ion.fraction_neutral_total, 4)
         else:
             row["pka_source"] = "none"
             row["predicted_pka"] = None
@@ -211,8 +214,6 @@ def screen_records(records: list[dict[str, Any]]) -> pd.DataFrame:
 
     col_order = [
         "name",
-        "input_smiles",
-        "canonical_smiles",
         "parse_status",
         "mw",
         "clogp",
@@ -244,6 +245,9 @@ def screen_records(records: list[dict[str, Any]]) -> pd.DataFrame:
         "formal_charge_status",
         "ionization_status",
         "final_result",
+        # ── SMILES (wide columns, moved to end) ─────────────────────────────
+        "input_smiles",
+        "canonical_smiles",
     ]
 
     df = pd.DataFrame(rows)
