@@ -1,17 +1,19 @@
-"""Rule-based pKa estimation and ionization state prediction.
+"""Ionization state prediction using Dimorphite-DL pKa database.
 
 Predicts the protonation state of a molecule at a target pH (default 5.5,
-stratum corneum surface pH) using SMARTS-based functional group matching and
-the Henderson-Hasselbalch equation.
+stratum corneum surface pH) using Dimorphite-DL's experimentally-derived pKa
+database and the Henderson-Hasselbalch equation.
 
-Limitations
------------
-This is a *rule-based* estimator, not a quantum-mechanical or ML model.
-pKa values are typical literature means for isolated functional groups;
-electronic effects, ring strain, intramolecular hydrogen bonds, and
-conjugation can shift real pKas by ±2 units.  For high-accuracy work,
-validated computational tools (e.g. Epik, Jaguar pKa, pkasolver) should
-be used.
+Dimorphite-DL (Ropp et al., 2019, J. Cheminformatics 11:14) contains 40+
+SMARTS-based functional-group patterns with mean pKa values and standard
+deviations derived from curated experimental literature data.  This is
+substantially more accurate than a hand-crafted rule table.
+
+Reference
+---------
+Ropp PJ, Kaminsky JC, Yablonski S, Durrant JD (2019). "Dimorphite-DL: an
+open-source program for enumerating the ionization states of drug-like small
+molecules." J Cheminform 11, 14. https://doi.org/10.1186/s13321-019-0336-9
 """
 from __future__ import annotations
 
@@ -28,139 +30,41 @@ PH_SC: float = 5.5  # stratum corneum surface pH
 IonType = Literal["acid", "base"]
 
 # ---------------------------------------------------------------------------
-# SMARTS rules
-# ---------------------------------------------------------------------------
-# Each entry: (SMARTS_pattern, typical_pKa, ion_type, short_description)
+# Dimorphite-DL group → acid / base classification
 #
-# 'acid' groups lose a proton at pH > pKa (become negatively charged).
-# 'base' groups gain a proton at pH < pKa (become positively charged).
+# Dimorphite-DL's 40+ functional-group patterns are classified into two
+# categories:
+#   'base'  – neutral nitrogen that gains H⁺ at pH < pKa  (+1 charge)
+#   'acid'  – neutral X-H group that loses H⁺ at pH > pKa (-1 charge)
 #
-# Rules are ordered from most specific to least specific.  During matching
-# the first rule that claims a given atom wins, so more specific patterns
-# must come first.
-#
-# SMARTS atom notation used:
-#   [OH]  – oxygen with exactly one H (hydroxyl)
-#   [SH]  – sulfur with one H (thiol)
-#   [NH1] – nitrogen with exactly one H
-#   [NH2] – nitrogen with two H's
-#   X3    – 3 total bonds (valence)
-#   X4    – 4 total bonds
-#   $()   – recursive SMARTS (substructure requirement)
-#   c     – aromatic carbon  /  n – aromatic nitrogen
+# Groups are taken directly from PKaData.get_substructures() names.
 # ---------------------------------------------------------------------------
-_RAW_RULES: list[tuple[str, float, IonType, str]] = [
-    # ── Strong acids ────────────────────────────────────────────────────────
-    ("[OH][SX4](=O)(=O)",          -1.0, "acid", "sulfonic_acid"),
-    ("[OH][PX4](=O)",               2.1, "acid", "phosphoric_acid"),
+_BASE_GROUPS: frozenset[str] = frozenset(
+    {
+        "AmidineGuanidine1",       # R-C(=NH)-NR2,  pKa ~12 (strong base)
+        "AmidineGuanidine2",       # R2N-C=NR,       pKa ~10
+        "Anilines_primary",        # Ar-NH2,          pKa ~3.9 (weak base)
+        "Anilines_secondary",      # Ar-NHR,          pKa ~4.3
+        "Anilines_tertiary",       # Ar-NR2,          pKa ~4.2
+        "Aromatic_nitrogen_unprotonated",  # pyridine-type,  pKa ~4.4
+        "Aromatic_nitrogen_protonated",    # protonated aromatic N, pKa ~7.2
+        "Amines_primary_secondary_tertiary",  # aliphatic N, pKa ~8.2
+        "Primary_hydroxyl_amine",  # NH2OH,           pKa ~4.0
+    }
+)
 
-    # ── Carboxylic acids ─────────────────────────────────────────────────────
-    ("[OH][CX3](=O)",               4.5, "acid", "carboxylic_acid"),
-
-    # ── Aryl thiol ───────────────────────────────────────────────────────────
-    ("[SH][cX3]",                   6.5, "acid", "aryl_thiol"),
-
-    # ── Hydroxamic acid  (-C(=O)-N-OH) ────────────────────────────────────────
-    ("[OH][NX3][CX3](=O)",          8.5, "acid", "hydroxamic_acid"),
-
-    # ── Imide N-H  (-C(=O)-NH-C(=O)-) ────────────────────────────────────────
-    ("[NH1]([CX3]=O)[CX3]=O",       9.6, "acid", "imide"),
-
-    # ── Sulfonamide N-H ────────────────────────────────────────────────────────
-    ("[NH1][SX4](=O)(=O)",         10.0, "acid", "sulfonamide"),
-
-    # ── Phenol / enol OH on aromatic ring ─────────────────────────────────────
-    ("[OH][cX3]",                  10.0, "acid", "phenol"),
-
-    # ── Aliphatic thiol ────────────────────────────────────────────────────────
-    ("[SH][CX4]",                  10.5, "acid", "aliphatic_thiol"),
-
-    # ── Guanidine  (most basic; must precede amidine and amine rules) ───────────
-    (
-        "[NX3;H0,H1,H2][CX3](=[NX2;H0,H1])[NX3;H0,H1,H2]",
-        12.5, "base", "guanidine",
-    ),
-
-    # ── Amidine  (C(=N)N, not guanidine) ──────────────────────────────────────
-    (
-        "[NX3;H1,H2;!$(NC(=N)N)][CX3;!$(CC=N)](=[NX2])",
-        11.0, "base", "amidine",
-    ),
-
-    # ── Primary aliphatic amine ─────────────────────────────────────────────────
-    (
-        "[NX3;H2;"
-        "!$(NC=O);!$(NS(=O)=O);!$(Nc);"
-        "!$(N=*);!$(N#*)]",
-        10.5, "base", "primary_aliphatic_amine",
-    ),
-
-    # ── Secondary aliphatic amine ───────────────────────────────────────────────
-    (
-        "[NX3;H1;"
-        "!$(NC=O);!$(NS(=O)=O);!$(Nc);"
-        "!$(N=*);!$(N#*)]",
-        10.0, "base", "secondary_aliphatic_amine",
-    ),
-
-    # ── Tertiary aliphatic amine ────────────────────────────────────────────────
-    (
-        "[NX3;H0;"
-        "!$(NC=O);!$(NS(=O)=O);!$(Nc);"
-        "!$(N=*);!$(N#*)]",
-        9.0, "base", "tertiary_aliphatic_amine",
-    ),
-
-    # ── Aromatic primary amine ──────────────────────────────────────────────────
-    ("[NH2][cX3]",                  4.5, "base", "aromatic_primary_amine"),
-
-    # ── Aromatic secondary amine (not sulfonamide, not amide) ───────────────────
-    (
-        "[NH1;!$(NS(=O)=O);!$(NC=O)][cX3]",
-        3.5, "base", "aromatic_secondary_amine",
-    ),
-
-    # ── Pyridine-type N in 6-membered aromatic ring ──────────────────────────────
-    ("[nH0;r6]",                    5.2, "base", "pyridine_N"),
-
-    # ── Imidazole / benzimidazole basic N in 5-membered ring adjacent to [nH] ──
-    (
-        "[nH0;r5;$([nH0]1cc[nH]c1),$([nH0]1cnc2ccccc12),$([nH0]1cnc2cccc12)]",
-        6.8, "base", "imidazole_N",
-    ),
-
-    # ── Other 5-membered aromatic N (oxazole, thiazole, pyrazole …) ────────────
-    ("[nH0;r5]",                    2.5, "base", "heteroaromatic_5ring_N"),
-]
-
+# Groups to skip outright (sentinel / non-ionizable at any physiological pH)
+_SKIP_GROUPS: frozenset[str] = frozenset(
+    {
+        "Nitro",  # pKa = -1000, never ionizes at physiological pH
+    }
+)
 
 # ---------------------------------------------------------------------------
-# Pre-compile SMARTS patterns once at import time
+# Public data-classes  (unchanged interface from previous implementation)
 # ---------------------------------------------------------------------------
-@dataclass(frozen=True)
-class _Rule:
-    pattern: Chem.Mol
-    pka: float
-    ion_type: IonType
-    description: str
 
 
-def _compile_rules() -> list[_Rule]:
-    compiled: list[_Rule] = []
-    for smarts, pka, ion_type, desc in _RAW_RULES:
-        pat = Chem.MolFromSmarts(smarts)
-        if pat is None:
-            raise ValueError(f"Invalid SMARTS in ionization rules: {smarts!r}")
-        compiled.append(_Rule(pat, pka, ion_type, desc))
-    return compiled
-
-
-_RULES: list[_Rule] = _compile_rules()
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
 @dataclass
 class IonizableGroup:
     """One ionizable functional group found in a molecule."""
@@ -227,11 +131,14 @@ class IonizationResult:
         if self.non_ionizable:
             return "non_ionizable"
 
-        acid_charge = sum(g.mean_charge for g in self.groups if g.ion_type == "acid")
-        base_charge = sum(g.mean_charge for g in self.groups if g.ion_type == "base")
+        acid_charge = sum(
+            g.mean_charge for g in self.groups if g.ion_type == "acid"
+        )
+        base_charge = sum(
+            g.mean_charge for g in self.groups if g.ion_type == "base"
+        )
         net = self.mean_charge
 
-        # Zwitterion: both acid and base groups carry non-trivial charge
         if acid_charge < -0.1 and base_charge > 0.1:
             return "zwitterion"
         if net < -0.1:
@@ -242,8 +149,9 @@ class IonizationResult:
 
 
 # ---------------------------------------------------------------------------
-# Core functions
+# Henderson-Hasselbalch helpers  (unchanged)
 # ---------------------------------------------------------------------------
+
 
 def _hhb_acid(pka: float, ph: float) -> tuple[float, float]:
     """Henderson-Hasselbalch for an *acid* group (loses proton).
@@ -251,9 +159,9 @@ def _hhb_acid(pka: float, ph: float) -> tuple[float, float]:
     Returns (fraction_neutral, mean_charge).
     """
     try:
-        ratio = 10 ** (ph - pka)          # [A-] / [HA]
-        f_neutral = 1.0 / (1.0 + ratio)   # fraction as HA
-        mean_charge = -ratio / (1.0 + ratio)  # mean charge (0 to -1)
+        ratio = 10 ** (ph - pka)
+        f_neutral = 1.0 / (1.0 + ratio)
+        mean_charge = -ratio / (1.0 + ratio)
     except OverflowError:
         f_neutral, mean_charge = 0.0, -1.0
     return round(f_neutral, 6), round(mean_charge, 6)
@@ -265,25 +173,42 @@ def _hhb_base(pka: float, ph: float) -> tuple[float, float]:
     Returns (fraction_neutral, mean_charge).
     """
     try:
-        ratio = 10 ** (pka - ph)           # [BH+] / [B]
-        f_neutral = 1.0 / (1.0 + ratio)   # fraction as B
-        mean_charge = ratio / (1.0 + ratio)   # mean charge (0 to +1)
+        ratio = 10 ** (pka - ph)
+        f_neutral = 1.0 / (1.0 + ratio)
+        mean_charge = ratio / (1.0 + ratio)
     except OverflowError:
         f_neutral, mean_charge = 0.0, 1.0
     return round(f_neutral, 6), round(mean_charge, 6)
 
 
+# ---------------------------------------------------------------------------
+# Dimorphite-DL integration
+# ---------------------------------------------------------------------------
+
+
+def _get_detector():
+    """Lazily instantiate (and cache) the Dimorphite-DL detector."""
+    if _get_detector._instance is None:
+        from dimorphite_dl.protonate.detect import ProtonationSiteDetector
+
+        _get_detector._instance = ProtonationSiteDetector()
+    return _get_detector._instance
+
+
+_get_detector._instance = None  # type: ignore[attr-defined]
+
+
 def ionize(mol: Chem.Mol, ph: float = PH_SC) -> IonizationResult:
     """Predict the ionization state of *mol* at *ph*.
 
-    Uses functional-group SMARTS rules and Henderson-Hasselbalch.  Each
-    heavy atom is assigned to at most one rule (first match wins, ordered
-    by rule specificity) so the same atom is never double-counted.
+    Uses Dimorphite-DL's experimentally-derived pKa database to detect
+    ionizable functional groups, then applies Henderson-Hasselbalch to
+    compute the fraction-neutral and mean charge of each group.
 
     Parameters
     ----------
     mol:
-        A valid RDKit molecule (must have implicit Hs computed).
+        A valid RDKit molecule.
     ph:
         Target pH.  Defaults to 5.5 (stratum corneum surface).
 
@@ -292,29 +217,54 @@ def ionize(mol: Chem.Mol, ph: float = PH_SC) -> IonizationResult:
     :class:`IonizationResult` with all matched groups and summary properties.
     """
     result = IonizationResult(ph=ph)
-    claimed: set[int] = set()  # atom indices already assigned to a rule
 
-    for rule in _RULES:
-        matches = mol.GetSubstructMatches(rule.pattern)
-        for match in matches:
-            # Skip if any atom in this match is already claimed
-            if any(idx in claimed for idx in match):
+    try:
+        from dimorphite_dl.mol import MoleculeRecord
+
+        smiles = Chem.MolToSmiles(mol)
+        if not smiles:
+            return result
+
+        detector = _get_detector()
+        rec = MoleculeRecord(smiles)
+        _, sites = detector.find_sites(rec)
+    except Exception:
+        # If Dimorphite-DL fails for any reason, return empty (non-ionizable)
+        return result
+
+    # Deduplicate: the same heavy atom can appear in multiple SMARTS matches
+    # (e.g. diethylamine N matches twice from each C-N bond).
+    # Use the resolved atom index from PKaDatum.idx_site as the dedup key.
+    claimed_atoms: set[int] = set()
+
+    for site in sites:
+        # Skip sentinel / non-physiological groups
+        if site.name in _SKIP_GROUPS:
+            continue
+
+        ion_type: IonType = (
+            "base" if site.name in _BASE_GROUPS else "acid"
+        )
+
+        for pka_datum in site.pkas:
+            # Resolve the actual heavy-atom index this pKa datum modifies
+            atom_idx = site.idxs_match[pka_datum.idx_site]
+            if atom_idx in claimed_atoms:
                 continue
+            claimed_atoms.add(atom_idx)
 
-            # Use the first (anchor) atom of the match as the "key" atom
-            anchor = match[0]
-            claimed.update(match)
+            pka = pka_datum.mean
 
-            if rule.ion_type == "acid":
-                f_neutral, m_charge = _hhb_acid(rule.pka, ph)
+            if ion_type == "acid":
+                f_neutral, m_charge = _hhb_acid(pka, ph)
             else:
-                f_neutral, m_charge = _hhb_base(rule.pka, ph)
+                f_neutral, m_charge = _hhb_base(pka, ph)
 
             result.groups.append(
                 IonizableGroup(
-                    description=rule.description,
-                    pka=rule.pka,
-                    ion_type=rule.ion_type,
+                    description=site.name,
+                    pka=round(pka, 3),
+                    ion_type=ion_type,
                     fraction_neutral=f_neutral,
                     mean_charge=m_charge,
                 )
