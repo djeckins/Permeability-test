@@ -255,14 +255,32 @@ with tab_file:
         file_payload = uploaded.getvalue()
         file_name = uploaded.name
 
-# ── Run button ────────────────────────────────────────────────────────────────
+# ── pH input (required) ───────────────────────────────────────────────────────
 st.markdown("<div style='height:0.6rem'/>", unsafe_allow_html=True)
+_, ph_col, _ = st.columns([2, 3, 2])
+with ph_col:
+    ph_input = st.number_input(
+        "🧪  pH для расчёта (pKa и logD)",
+        min_value=0.0,
+        max_value=14.0,
+        value=None,
+        step=0.1,
+        format="%.1f",
+        placeholder="Введите pH (0–14), например 5.5",
+    )
+
+# ── Run button ────────────────────────────────────────────────────────────────
+st.markdown("<div style='height:0.4rem'/>", unsafe_allow_html=True)
 _, btn_col, _ = st.columns([2, 3, 2])
 with btn_col:
     run = st.button("🔬  Run Screening", type="primary", use_container_width=True)
 
 # ── Processing ────────────────────────────────────────────────────────────────
 if run:
+    if ph_input is None:
+        st.error("Введите pH перед запуском расчёта.")
+        st.stop()
+
     # File takes priority over SMILES text
     if file_payload is not None:
         mode = _detect_mode(file_name or "upload.sdf")
@@ -278,7 +296,7 @@ if run:
 
     with st.spinner("Calculating descriptors and screening…"):
         records = parse_input(mode, payload, filename=fname)
-        df = screen_records(records)
+        df = screen_records(records, ph=float(ph_input))
 
     # ── Metrics ───────────────────────────────────────────────────────────────
     total      = len(df)
@@ -318,6 +336,10 @@ if run:
         column_config={
             "input_smiles": st.column_config.TextColumn("SMILES", width="small"),
             "canonical_smiles": st.column_config.TextColumn("Canonical SMILES", width="small"),
+            "fraction_unionized_pH5_5": st.column_config.NumberColumn(
+                f"f_unionized pH {ph_input:.1f}"
+            ),
+            "logd": st.column_config.NumberColumn(f"logD pH {ph_input:.1f}"),
         },
     )
 
