@@ -1,6 +1,7 @@
 """Screen molecule records against epidermal barrier passage criteria."""
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import pandas as pd
@@ -114,13 +115,16 @@ def _final_result(statuses: list[str]) -> str:
     return "PASS"
 
 
-def screen_records(records: list[dict[str, Any]]) -> pd.DataFrame:
+def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataFrame:
     """Apply epidermal barrier criteria to *records* and return a results DataFrame.
 
     Parameters
     ----------
     records:
         List of molecule records as produced by :func:`epidermal_barrier_screen.io.parse_input`.
+    ph:
+        Target pH for ionization and logD calculations.  Defaults to
+        :data:`~epidermal_barrier_screen.ionization.PH_SC` (5.5, stratum corneum).
 
     Returns
     -------
@@ -147,28 +151,19 @@ def screen_records(records: list[dict[str, Any]]) -> pd.DataFrame:
         desc = calculate(mol)
         row.update(desc)
 
-        # Determine the logD value to use
-        input_logd = rec.get("input_logd_7_4")
-        if input_logd is not None:
-            row["logd"] = input_logd
-            row["logd_source"] = "input_logd_7_4"
-        else:
-            row["logd"] = desc["clogp"]
-            row["logd_source"] = "clogp_proxy"
-
-        # ── Ionization at pH 5.5 ────────────────────────────────────────────
-        ion = ionize(mol, ph=PH_SC)
+        # ── Ionization at user-specified pH ─────────────────────────────────
+        ion = ionize(mol, ph=ph)
 
         input_pka = rec.get("input_pka")
         if input_pka is not None:
-            # Use the experimentally supplied pKa; acid vs base determined from predicted ionization
+            # Use the experimentally supplied pKa; acid vs base from predicted ionization
             ion_type = ion.dominant_type if ion.dominant_group is not None else "acid"
             if ion_type == "base":
                 from epidermal_barrier_screen.ionization import _hhb_base
-                f_neutral, _ = _hhb_base(input_pka, PH_SC)
+                f_neutral, _ = _hhb_base(input_pka, ph)
             else:
                 from epidermal_barrier_screen.ionization import _hhb_acid
-                f_neutral, _ = _hhb_acid(input_pka, PH_SC)
+                f_neutral, _ = _hhb_acid(input_pka, ph)
             row["pka_source"] = "input"
             row["predicted_pka"] = None
             row["predicted_pka_type"] = ion_type
@@ -183,6 +178,19 @@ def screen_records(records: list[dict[str, Any]]) -> pd.DataFrame:
             row["predicted_pka"] = None
             row["predicted_pka_type"] = None
             row["fraction_unionized_pH5_5"] = 1.0  # non-ionizable → always neutral
+
+        # ── logD at user-specified pH ────────────────────────────────────────
+        # Priority: experimentally supplied logD > pH-corrected clogP
+        input_logd = rec.get("input_logd_7_4")
+        if input_logd is not None:
+            row["logd"] = input_logd
+            row["logd_source"] = "input_logd_7_4"
+        else:
+            f_total = row["fraction_unionized_pH5_5"]
+            # logD(pH) = clogP + log10(fraction_neutral)
+            logd_correction = math.log10(max(f_total, 1e-10))
+            row["logd"] = round(desc["clogp"] + logd_correction, 4)
+            row["logd_source"] = f"clogp_pH{ph:.1f}"
 
         row["mean_charge_pH5_5"] = round(ion.mean_charge, 4)
         row["ionization_class"] = ion.ionization_class
