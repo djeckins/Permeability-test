@@ -73,24 +73,24 @@ if run:
 with st.expander('Criteria used by the app'):
     st.markdown(
         """
-        - **MW**: optimal `< 300`, suboptimal `300–500`
-        - **logD (pH 5.5)**: optimal `1–3`, suboptimal `0.5–1` or `3–5`;
-          computed as `logD = clogP + Σ log₁₀(f_neutral_i)` (Scherrer equation)
-          using Dimorphite-DL ionization; overridden by `input_logD_7_4` SDF property
-        - **TPSA**: optimal `< 60`, suboptimal `60–130`
-        - **HBD**: optimal `0–3`, suboptimal `4–5`
-        - **HBA**: optimal `2–8`, suboptimal `8–10`
-        - **RotB**: optimal `< 10`, suboptimal `10–15`
-        - **HAC**: optimal `< 30`, suboptimal `30–50`
-        - **Formal charge**: optimal `0`, suboptimal `±1`
-        - **pKa / ionization** (pH 5.5): predicted from structure using
-          **Dimorphite-DL** (Ropp et al., 2019, *J. Cheminformatics* 11:14) —
-          a published, validated engine with 40+ SMARTS patterns and
-          experimentally derived pKa values (mean ± σ from curated literature).
-          Overridden by `pKa` / `input_pka` SDF property when present.
-          Reports `predicted_pka`, `predicted_pka_type` (acid/base),
-          `fraction_unionized_pH5_5`, `mean_charge_pH5_5`, and
-          `ionization_class`
-          (non_ionizable / neutral / acid / base / zwitterion).
+        | Критерий | Оптимально | Субоптимально | Требуются энхансеры |
+        |---|---|---|---|
+        | **1. MW** | < 300 Da | 300–600 Da | > 600 Da |
+        | **2. logD (pH 5.5)** | 1–3 | 0.5–1 или 3–5 | < 0.5 или > 5 |
+        | **3. TPSA** | < 60 Å² | 60–130 Å² | > 130 Å² |
+        | **4. HBD** | 0–3 | 4–5 | > 5 |
+        | **5. HBA** | 2–8 | 8–10 | > 10 |
+        | **6. pKa** | f\_unionized > 99% (pKa > pH+2 для кислот) | f\_unionized 1–99% | f\_unionized < 1% |
+        | **7. RotB** | < 10 | 10–15 | > 15 |
+        | **8. HAC** | < 30 | 30–50 | > 50 |
+        | **9. Заряд** | 0 | ±1 | |
+
+        **logD** вычисляется по уравнению Шеррера: `logD = clogP + Σ log₁₀(f_neutral_i)`,
+        используя ионизацию Dimorphite-DL (Ropp et al., 2019, *J. Cheminformatics* 11:14).
+        При наличии SDF-свойства `input_logD_7_4` используется экспериментальное значение.
+
+        **pKa** предсказывается из структуры с помощью Dimorphite-DL (40+ SMARTS-паттернов,
+        экспериментальные pKa). Переопределяется SDF-свойством `pKa` / `input_pka`.
+        Колонка `pka_status` основана на `fraction_unionized_pH5_5` (доля нейтральной формы при pH 5.5).
         """
     )

@@ -28,7 +28,7 @@ _CRITERIA: list[tuple[str, tuple, tuple]] = [
 ]
 
 _FAIL_THRESHOLDS = {
-    "mw":           500,
+    "mw":           600,
     "logd_lo":      0.5,  # below 0.5 is fail
     "logd_hi":      5,    # above 5 is fail
     "tpsa":         130,
@@ -42,7 +42,7 @@ _FAIL_THRESHOLDS = {
 def _mw_status(v: float) -> str:
     if v < 300:
         return "optimal"
-    if v <= 500:
+    if v <= 600:
         return "suboptimal"
     return "fail"
 
@@ -99,6 +99,25 @@ def _charge_status(v: int) -> str:
     if v == 0:
         return "optimal"
     if v in (-1, 1):
+        return "suboptimal"
+    return "fail"
+
+
+def _pka_status(fraction_unionized: float) -> str:
+    """pKa / ionization status at pH 5.5.
+
+    Thresholds from the epidermal barrier criteria table:
+      - optimal:    fraction_unionized > 0.99  (pKa > pH+2 for acids,
+                                                pKa < pH-2 for bases)
+                    → molecule predominantly neutral at skin surface pH
+      - suboptimal: 0.01 ≤ fraction_unionized ≤ 0.99  (pKa 3–7.5 for acids)
+      - fail:       fraction_unionized < 0.01  (pKa < 3 for acids;
+                                                enhancers needed)
+    Non-ionizable molecules have fraction_unionized = 1.0 → optimal.
+    """
+    if fraction_unionized > 0.99:
+        return "optimal"
+    if fraction_unionized >= 0.01:
         return "suboptimal"
     return "fail"
 
@@ -201,6 +220,7 @@ def screen_records(records: list[dict[str, Any]]) -> pd.DataFrame:
         row["tpsa_status"] = _tpsa_status(desc["tpsa"])
         row["hbd_status"] = _hbd_status(desc["hbd"])
         row["hba_status"] = _hba_status(desc["hba"])
+        row["pka_status"] = _pka_status(row["fraction_unionized_pH5_5"])
         row["rotb_status"] = _rotb_status(desc["rotb"])
         row["hac_status"] = _hac_status(desc["hac"])
         row["formal_charge_status"] = _charge_status(desc["formal_charge"])
@@ -211,6 +231,7 @@ def screen_records(records: list[dict[str, Any]]) -> pd.DataFrame:
             row["tpsa_status"],
             row["hbd_status"],
             row["hba_status"],
+            row["pka_status"],
             row["rotb_status"],
             row["hac_status"],
             row["formal_charge_status"],
@@ -248,6 +269,7 @@ def screen_records(records: list[dict[str, Any]]) -> pd.DataFrame:
         "tpsa_status",
         "hbd_status",
         "hba_status",
+        "pka_status",
         "rotb_status",
         "hac_status",
         "formal_charge_status",
