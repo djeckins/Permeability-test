@@ -27,6 +27,12 @@ st.markdown(
     [data-testid="stAppViewContainer"] { background: #f0f4f9; }
     [data-testid="stHeader"] { background: transparent; }
 
+    /* Hide GitHub / Edit-source / Deploy toolbar buttons */
+    [data-testid="stToolbar"]          { display: none !important; }
+    [data-testid="stDecoration"]       { display: none !important; }
+    #MainMenu                          { visibility: hidden !important; }
+    footer                             { visibility: hidden !important; }
+
     .eb-hero {
         background: linear-gradient(135deg, #1a3a5c 0%, #2563a8 100%);
         border-radius: 14px;
