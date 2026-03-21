@@ -39,6 +39,9 @@ st.markdown(
     /* Preserve white text on dark backgrounds */
     .eb-hero p, .eb-hero span, .eb-hero div, .eb-hero h1,
     .eb-metric .val, .eb-metric .lbl,
+    .eb-criteria-strip .strip-label,
+    .eb-criteria-strip .eb-pill,
+    .eb-criteria-strip .eb-pill .pill-icon,
     div[data-testid="stDownloadButton"] button,
     div[data-testid="stDownloadButton"] button span,
     div[data-testid="stButton"] button[kind="primary"],
@@ -513,17 +516,16 @@ with tab_file:
         file_name = uploaded.name
 
 # ── pH input (required) ───────────────────────────────────────────────────────
-st.markdown("<div style='height:0.6rem'/>", unsafe_allow_html=True)
 _, ph_col, _ = st.columns([2, 3, 2])
 with ph_col:
     ph_input = st.number_input(
-        "🧪  pH для расчёта (pKa и logD)",
+        "pH",
         min_value=0.0,
         max_value=14.0,
         value=None,
         step=0.1,
         format="%.1f",
-        placeholder="Введите pH (0–14), например 5.5",
+        placeholder="Enter pH (0–14)",
     )
 
 # ── Run button ────────────────────────────────────────────────────────────────
