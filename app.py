@@ -24,7 +24,12 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    [data-testid="stAppViewContainer"] { background: #f0f4f9; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+    [data-testid="stAppViewContainer"] {
+        background: linear-gradient(168deg, #ffffff 0%, #f0f5fc 40%, #e4edf8 100%);
+        font-family: 'Inter', sans-serif;
+    }
     [data-testid="stHeader"] { background: transparent; }
 
     /* Hide GitHub / Edit-source / Deploy toolbar buttons */
@@ -33,47 +38,169 @@ st.markdown(
     #MainMenu                          { visibility: hidden !important; }
     footer                             { visibility: hidden !important; }
 
+    /* ── Hero ─────────────────────────────────────── */
     .eb-hero {
-        background: linear-gradient(135deg, #1a3a5c 0%, #2563a8 100%);
-        border-radius: 14px;
-        padding: 2rem 2.5rem 1.8rem;
-        margin-bottom: 1.6rem;
+        background: linear-gradient(135deg, #0f2b47 0%, #1a4578 40%, #2a6cb8 100%);
+        border-radius: 20px;
+        padding: 0;
+        margin-bottom: 1.8rem;
         color: white;
+        position: relative;
+        overflow: hidden;
+        min-height: 200px;
+        box-shadow: 0 8px 32px rgba(15, 43, 71, 0.25), 0 2px 8px rgba(0,0,0,0.08);
     }
-    .eb-hero h1 { font-size: 2rem; font-weight: 700; margin: 0 0 0.4rem; color: white; }
-    .eb-hero p  { font-size: 0.97rem; color: #b8d4f0; margin: 0; }
+    .eb-hero-content {
+        position: relative;
+        z-index: 2;
+        padding: 2.8rem 3rem 2.4rem;
+        max-width: 60%;
+    }
+    .eb-hero h1 {
+        font-size: 2.2rem;
+        font-weight: 800;
+        margin: 0 0 0.6rem;
+        color: white;
+        letter-spacing: -0.02em;
+        line-height: 1.15;
+    }
+    .eb-hero p {
+        font-size: 1.02rem;
+        color: #b0cfe8;
+        margin: 0;
+        line-height: 1.55;
+        font-weight: 400;
+    }
+    .eb-hero-art {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 45%;
+        height: 100%;
+        z-index: 1;
+        opacity: 0.35;
+    }
 
+    /* ── Criteria strip ───────────────────────────── */
+    .eb-criteria-strip {
+        background: white;
+        border-radius: 16px;
+        padding: 1.2rem 1.8rem;
+        margin-bottom: 1.6rem;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+        display: flex;
+        align-items: center;
+        gap: 0.7rem;
+        flex-wrap: wrap;
+    }
+    .eb-criteria-strip .strip-label {
+        font-size: 0.72rem;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #8a9ab5;
+        margin-right: 0.4rem;
+        white-space: nowrap;
+    }
+    .eb-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        background: linear-gradient(135deg, #f0f5fc 0%, #e8eef8 100%);
+        border: 1px solid #d5dff0;
+        border-radius: 20px;
+        padding: 0.38rem 0.85rem;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: #2a5080;
+        transition: all 0.2s ease;
+        white-space: nowrap;
+    }
+    .eb-pill:hover {
+        background: linear-gradient(135deg, #e4edf8 0%, #d5dff0 100%);
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(42, 80, 128, 0.12);
+    }
+    .eb-pill .pill-icon {
+        font-size: 0.82rem;
+        opacity: 0.75;
+    }
+
+    /* ── Cards ────────────────────────────────────── */
     .eb-card {
         background: white;
-        border-radius: 12px;
-        padding: 1.4rem 1.6rem;
-        box-shadow: 0 1px 6px rgba(0,0,0,.08);
-        margin-bottom: 1.2rem;
+        border-radius: 14px;
+        padding: 1.5rem 1.8rem;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+        margin-bottom: 1.4rem;
     }
-    .eb-card h3 { margin: 0 0 1rem; font-size: 1rem; font-weight: 600; color: #1a3a5c; }
+    .eb-card h3 {
+        margin: 0 0 1rem;
+        font-size: 1rem;
+        font-weight: 600;
+        color: #1a3a5c;
+    }
 
+    /* ── Metric boxes ─────────────────────────────── */
     .eb-metric {
-        border-radius: 10px;
-        padding: 1rem 1.2rem;
+        border-radius: 14px;
+        padding: 1.1rem 1.3rem;
         text-align: center;
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
-    .eb-metric .val { font-size: 2rem; font-weight: 700; }
-    .eb-metric .lbl { font-size: 0.8rem; text-transform: uppercase; letter-spacing: .05em; }
-    .m-total      { background: #e3f2fd; color: #1565c0; }
-    .m-pass       { background: #e8f5e9; color: #2e7d32; }
-    .m-borderline { background: #fff8e1; color: #e65100; }
-    .m-fail       { background: #ffebee; color: #c62828; }
+    .eb-metric:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 16px rgba(0,0,0,0.10);
+    }
+    .eb-metric .val { font-size: 2.1rem; font-weight: 800; }
+    .eb-metric .lbl {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: .07em;
+        font-weight: 600;
+        margin-top: 0.2rem;
+    }
+    .m-total      { background: linear-gradient(135deg, #e3f2fd, #d0e8fc); color: #1565c0; }
+    .m-pass       { background: linear-gradient(135deg, #e8f5e9, #d0ecd2); color: #2e7d32; }
+    .m-borderline { background: linear-gradient(135deg, #fff8e1, #fff0c0); color: #e65100; }
+    .m-fail       { background: linear-gradient(135deg, #ffebee, #ffd6da); color: #c62828; }
 
+    /* ── Buttons ──────────────────────────────────── */
     div[data-testid="stDownloadButton"] button {
-        background: #2563a8 !important;
+        background: linear-gradient(135deg, #2563a8, #1a4578) !important;
         color: white !important;
-        border-radius: 8px !important;
+        border-radius: 10px !important;
         font-weight: 600 !important;
         font-size: 1rem !important;
-        padding: .6rem 1.2rem !important;
+        padding: .65rem 1.3rem !important;
+        border: none !important;
+        box-shadow: 0 3px 12px rgba(26, 69, 120, 0.3) !important;
+        transition: all 0.2s ease !important;
     }
     div[data-testid="stDownloadButton"] button:hover {
-        background: #1a3a5c !important;
+        background: linear-gradient(135deg, #1a4578, #0f2b47) !important;
+        box-shadow: 0 5px 18px rgba(26, 69, 120, 0.4) !important;
+        transform: translateY(-1px) !important;
+    }
+
+    div[data-testid="stButton"] button[kind="primary"] {
+        background: linear-gradient(135deg, #2563a8, #1a4578) !important;
+        border-radius: 10px !important;
+        font-weight: 600 !important;
+        border: none !important;
+        box-shadow: 0 3px 12px rgba(26, 69, 120, 0.25) !important;
+        transition: all 0.2s ease !important;
+    }
+    div[data-testid="stButton"] button[kind="primary"]:hover {
+        background: linear-gradient(135deg, #1a4578, #0f2b47) !important;
+        box-shadow: 0 5px 18px rgba(26, 69, 120, 0.35) !important;
+        transform: translateY(-1px) !important;
+    }
+
+    /* ── Section headers ──────────────────────────── */
+    h3 {
+        color: #1a3a5c !important;
+        font-weight: 700 !important;
     }
     </style>
     """,
@@ -219,12 +346,103 @@ def _detect_mode(filename: str) -> str:
 
 # ── UI ────────────────────────────────────────────────────────────────────────
 
+# Decorative SVG for hero section – abstract hexagons, molecular network, floating spheres, wave layers
+_HERO_SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 260" width="100%" height="100%" preserveAspectRatio="xMaxYMid slice">
+  <defs>
+    <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.10"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0.02"/>
+    </linearGradient>
+    <radialGradient id="sg" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Translucent wave layers -->
+  <path d="M0,220 Q80,180 180,200 T360,185 T500,210 L500,260 L0,260Z" fill="url(#wg)" opacity="0.6"/>
+  <path d="M0,235 Q120,205 240,225 T480,210 L500,260 L0,260Z" fill="url(#wg)" opacity="0.4"/>
+
+  <!-- Molecular network lines -->
+  <g stroke="#ffffff" stroke-opacity="0.12" stroke-width="1" fill="none">
+    <line x1="180" y1="60" x2="260" y2="95"/>
+    <line x1="260" y1="95" x2="350" y2="70"/>
+    <line x1="350" y1="70" x2="420" y2="110"/>
+    <line x1="260" y1="95" x2="290" y2="160"/>
+    <line x1="290" y1="160" x2="380" y2="175"/>
+    <line x1="380" y1="175" x2="420" y2="110"/>
+    <line x1="180" y1="60" x2="150" y2="130"/>
+    <line x1="150" y1="130" x2="220" y2="170"/>
+    <line x1="220" y1="170" x2="290" y2="160"/>
+    <line x1="350" y1="70" x2="440" y2="50"/>
+    <line x1="440" y1="50" x2="480" y2="90"/>
+    <line x1="420" y1="110" x2="480" y2="90"/>
+  </g>
+
+  <!-- Network node dots -->
+  <g fill="#ffffff" fill-opacity="0.25">
+    <circle cx="180" cy="60" r="3.5"/>
+    <circle cx="260" cy="95" r="4"/>
+    <circle cx="350" cy="70" r="3"/>
+    <circle cx="420" cy="110" r="3.5"/>
+    <circle cx="290" cy="160" r="3"/>
+    <circle cx="380" cy="175" r="3.5"/>
+    <circle cx="150" cy="130" r="2.5"/>
+    <circle cx="220" cy="170" r="3"/>
+    <circle cx="440" cy="50" r="2.5"/>
+    <circle cx="480" cy="90" r="3"/>
+  </g>
+
+  <!-- Abstract hexagons -->
+  <g fill="none" stroke="#ffffff" stroke-opacity="0.10" stroke-width="1.2">
+    <polygon points="320,35 345,22 370,35 370,60 345,73 320,60"/>
+    <polygon points="370,60 395,47 420,60 420,85 395,98 370,85"/>
+    <polygon points="200,120 220,110 240,120 240,140 220,150 200,140"/>
+    <polygon points="400,155 418,145 436,155 436,173 418,183 400,173"/>
+  </g>
+
+  <!-- Floating translucent spheres -->
+  <circle cx="450" cy="45" r="18" fill="url(#sg)" opacity="0.5"/>
+  <circle cx="160" cy="80" r="12" fill="url(#sg)" opacity="0.4"/>
+  <circle cx="330" cy="190" r="22" fill="url(#sg)" opacity="0.35"/>
+  <circle cx="470" cy="170" r="10" fill="url(#sg)" opacity="0.45"/>
+  <circle cx="240" cy="40" r="8" fill="url(#sg)" opacity="0.3"/>
+</svg>"""
+
 st.markdown(
-    """
+    f"""
     <div class="eb-hero">
-      <h1>🧪 Epidermal Barrier Screen</h1>
-      <p>Assess whether a molecule fits the physicochemical window for passive epidermal barrier permeation.<br>
-         Supports single SMILES, SMILES lists, SDF files, and ZIP archives of SDFs.</p>
+      <div class="eb-hero-art">{_HERO_SVG}</div>
+      <div class="eb-hero-content">
+        <h1>Epidermal Barrier Screening Tool</h1>
+        <p>Evaluate compounds for epidermal barrier permeation potential.<br>
+           Supports single SMILES, SMILES lists, SDF files, and ZIP archives.</p>
+      </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ── Criteria overview strip ──────────────────────────────────────────────────
+_CRITERIA_PILLS = [
+    ("⚖️", "MW"),
+    ("🧪", "LogP / LogD"),
+    ("◉", "TPSA"),
+    ("🔗", "HBD & HBA"),
+    ("↻", "Rotatable Bonds"),
+    ("⬢", "Heavy Atom Count"),
+    ("±", "Formal Charge"),
+    ("⚡", "Ionization at pH"),
+]
+_pills_html = "".join(
+    f'<span class="eb-pill"><span class="pill-icon">{icon}</span>{label}</span>'
+    for icon, label in _CRITERIA_PILLS
+)
+st.markdown(
+    f"""
+    <div class="eb-criteria-strip">
+      <span class="strip-label">Screening Criteria</span>
+      {_pills_html}
     </div>
     """,
     unsafe_allow_html=True,
