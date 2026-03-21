@@ -7,7 +7,13 @@ from typing import Any
 import pandas as pd
 
 from epidermal_barrier_screen.descriptors import calculate
-from epidermal_barrier_screen.ionization import PH_SC, ionize
+from epidermal_barrier_screen.ionization import (
+    PH_SC,
+    ionize,
+    _hhb_acid,
+    _hhb_base,
+    _ml_pka,
+)
 
 # ---------------------------------------------------------------------------
 # Per-criterion status functions
@@ -152,48 +158,43 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
         row.update(desc)
 
         # ── Ionization at user-specified pH ─────────────────────────────────
+        # Use Dimorphite-DL only for ion_type detection; pkapredict for pKa
         ion = ionize(mol, ph=ph)
 
         input_pka = rec.get("input_pka")
         if input_pka is not None:
-            # Use the experimentally supplied pKa; acid vs base from predicted ionization
+            # User-provided experimental pKa takes priority
             ion_type = ion.dominant_type if ion.dominant_group is not None else "acid"
-            if ion_type == "base":
-                from epidermal_barrier_screen.ionization import _hhb_base
-                f_neutral, _ = _hhb_base(input_pka, ph)
-            else:
-                from epidermal_barrier_screen.ionization import _hhb_acid
-                f_neutral, _ = _hhb_acid(input_pka, ph)
-            row["pka_source"] = "input"
-            row["predicted_pka"] = None
-            row["predicted_pka_type"] = ion_type
-            row["fraction_unionized_pH5_5"] = round(f_neutral, 4)
+            pka_val = input_pka
         elif ion.dominant_group is not None:
-            row["pka_source"] = "predicted_ml" if ion.pka_ml_used else "predicted_dl"
-            row["predicted_pka"] = ion.dominant_pka
-            row["predicted_pka_type"] = ion.dominant_type
-            row["fraction_unionized_pH5_5"] = round(ion.fraction_neutral_total, 4)
+            # Molecule has ionizable groups → use pkapredict (strict)
+            smiles = rec.get("canonical_smiles") or ""
+            ml_val = _ml_pka(smiles)
+            pka_val = ml_val if ml_val is not None else ion.dominant_pka
+            ion_type = ion.dominant_type
         else:
-            row["pka_source"] = "none"
+            # Non-ionizable molecule
+            pka_val = None
+            ion_type = None
+
+        if pka_val is not None and ion_type is not None:
+            if ion_type == "acid":
+                f_neutral, _ = _hhb_acid(pka_val, ph)
+            else:
+                f_neutral, _ = _hhb_base(pka_val, ph)
+            row["predicted_pka"] = round(pka_val, 2)
+            row["fraction_unionized"] = round(f_neutral, 4)
+        else:
             row["predicted_pka"] = None
-            row["predicted_pka_type"] = None
-            row["fraction_unionized_pH5_5"] = 1.0  # non-ionizable → always neutral
+            row["fraction_unionized"] = 1.0  # non-ionizable → always neutral
 
         # ── logD at user-specified pH ────────────────────────────────────────
-        # Priority: experimentally supplied logD > pH-corrected clogP
         input_logd = rec.get("input_logd_7_4")
         if input_logd is not None:
             row["logd"] = input_logd
-            row["logd_source"] = "input_logd_7_4"
         else:
-            f_total = row["fraction_unionized_pH5_5"]
-            # logD(pH) = clogP + log10(fraction_neutral)
-            logd_correction = math.log10(max(f_total, 1e-10))
-            row["logd"] = round(desc["clogp"] + logd_correction, 4)
-            row["logd_source"] = f"clogp_pH{ph:.1f}"
-
-        row["mean_charge_pH5_5"] = round(ion.mean_charge, 4)
-        row["ionization_class"] = ion.ionization_class
+            f = row["fraction_unionized"]
+            row["logd"] = round(desc["clogp"] + math.log10(max(f, 1e-10)), 4)
 
         # ── Per-criterion statuses ───────────────────────────────────────────
         row["mw_status"] = _mw_status(desc["mw"])
@@ -204,7 +205,7 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
         row["rotb_status"] = _rotb_status(desc["rotb"])
         row["hac_status"] = _hac_status(desc["hac"])
         row["formal_charge_status"] = _charge_status(desc["formal_charge"])
-        row["ionization_status"] = _ionization_status(row["fraction_unionized_pH5_5"])
+        row["ionization_status"] = _ionization_status(row["fraction_unionized"])
 
         statuses = [
             row["mw_status"],
@@ -224,24 +225,16 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
         "name",
         "parse_status",
         "mw",
-        "clogp",
-        "logd",
-        "logd_source",
-        "tpsa",
-        "hbd",
         "hba",
+        "hbd",
         "rotb",
         "hac",
-        "formal_charge",
-        # ── pKa / ionization ────────────────────────────────────────────────
-        "input_pka",
-        "input_logd_7_4",
-        "pka_source",
         "predicted_pka",
-        "predicted_pka_type",
-        "fraction_unionized_pH5_5",
-        "mean_charge_pH5_5",
-        "ionization_class",
+        "clogp",
+        "logd",
+        "tpsa",
+        "fraction_unionized",
+        "formal_charge",
         # ── Per-criterion statuses ───────────────────────────────────────────
         "mw_status",
         "logd_status",
