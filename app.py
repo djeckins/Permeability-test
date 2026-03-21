@@ -267,8 +267,10 @@ _DISPLAY_COLS = [
     "rotb",
     "hac",
     "predicted_pka",
+    "ionization_class",
     "clogp",
     "logd",
+    "logd_method",
     "fraction_unionized",
     "formal_charge",
     "final_result",
@@ -600,8 +602,10 @@ if run:
             "rotb": st.column_config.NumberColumn("RB"),
             "hac": st.column_config.NumberColumn("HAC"),
             "predicted_pka": st.column_config.NumberColumn("pKa"),
+            "ionization_class": st.column_config.TextColumn("Ionization"),
             "clogp": st.column_config.NumberColumn("cLogP"),
             "logd": st.column_config.NumberColumn(f"LogD (pH {ph_input:.1f})"),
+            "logd_method": st.column_config.TextColumn("LogD Method", width="small"),
             "fraction_unionized": st.column_config.NumberColumn(
                 f"Fraction Unionized (pH {ph_input:.1f})"
             ),
