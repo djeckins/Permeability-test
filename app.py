@@ -29,6 +29,26 @@ st.markdown(
     [data-testid="stAppViewContainer"] {
         background: linear-gradient(168deg, #ffffff 0%, #f0f5fc 40%, #e4edf8 100%);
         font-family: 'Inter', sans-serif;
+        color: #1a1a2e;
+    }
+
+    /* ── Global text readability ──────────────────── */
+    p, span, label, div, .stMarkdown, .stText {
+        color: #1a1a2e !important;
+    }
+    [data-testid="stWidgetLabel"] label, [data-testid="stWidgetLabel"] p {
+        color: #1a1a2e !important;
+        font-weight: 500 !important;
+    }
+    .stTabs [data-baseweb="tab"] {
+        color: #2a3a5c !important;
+        font-weight: 600 !important;
+    }
+    .stTextArea textarea, .stNumberInput input {
+        color: #1a1a2e !important;
+    }
+    .stTextArea textarea::placeholder {
+        color: #7a8a9e !important;
     }
     [data-testid="stHeader"] { background: transparent; }
 
@@ -98,7 +118,7 @@ st.markdown(
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        color: #8a9ab5;
+        color: #4a5a75;
         margin-right: 0.4rem;
         white-space: nowrap;
     }
@@ -112,7 +132,7 @@ st.markdown(
         padding: 0.38rem 0.85rem;
         font-size: 0.78rem;
         font-weight: 600;
-        color: #2a5080;
+        color: #1a3a65;
         transition: all 0.2s ease;
         white-space: nowrap;
     }
@@ -218,24 +238,28 @@ _STATUS_COLS = [
 _NUMERIC_STATUS = {
     "mw":                    "mw_status",
     "logd":                  "logd_status",
-    "tpsa":                  "tpsa_status",
     "hbd":                   "hbd_status",
     "hba":                   "hba_status",
     "rotb":                  "rotb_status",
     "hac":                   "hac_status",
     "formal_charge":         "formal_charge_status",
-    "fraction_unionized_pH5_5": "ionization_status",
+    "fraction_unionized":    "ionization_status",
 }
 
-# Columns shown in the Streamlit table (status cols hidden; SMILES at end and narrow)
+# Columns shown in the Streamlit table
 _DISPLAY_COLS = [
-    "name", "parse_status",
-    "mw", "clogp", "logd", "logd_source",
-    "tpsa", "hbd", "hba", "rotb", "hac", "formal_charge",
-    "pka_source", "predicted_pka", "predicted_pka_type",
-    "fraction_unionized_pH5_5", "mean_charge_pH5_5", "ionization_class",
+    "name",
+    "mw",
+    "hba",
+    "hbd",
+    "rotb",
+    "hac",
+    "predicted_pka",
+    "clogp",
+    "logd",
+    "fraction_unionized",
+    "formal_charge",
     "final_result",
-    "input_smiles", "canonical_smiles",
 ]
 
 _CELL_CSS = {
@@ -558,12 +582,20 @@ if run:
         height=min(40 + len(df) * 36, 600),
         column_order=display_order,
         column_config={
-            "input_smiles": st.column_config.TextColumn("SMILES", width="small"),
-            "canonical_smiles": st.column_config.TextColumn("Canonical SMILES", width="small"),
-            "fraction_unionized_pH5_5": st.column_config.NumberColumn(
-                f"f_unionized pH {ph_input:.1f}"
+            "name": st.column_config.TextColumn("Compound"),
+            "mw": st.column_config.NumberColumn("MW"),
+            "hba": st.column_config.NumberColumn("HBA"),
+            "hbd": st.column_config.NumberColumn("HBD"),
+            "rotb": st.column_config.NumberColumn("RB"),
+            "hac": st.column_config.NumberColumn("HAC"),
+            "predicted_pka": st.column_config.NumberColumn("pKa"),
+            "clogp": st.column_config.NumberColumn("cLogP"),
+            "logd": st.column_config.NumberColumn(f"LogD (pH {ph_input:.1f})"),
+            "fraction_unionized": st.column_config.NumberColumn(
+                f"Fraction Unionized (pH {ph_input:.1f})"
             ),
-            "logd": st.column_config.NumberColumn(f"logD pH {ph_input:.1f}"),
+            "formal_charge": st.column_config.NumberColumn("Formal Charge"),
+            "final_result": st.column_config.TextColumn("Final Result"),
         },
     )
 
