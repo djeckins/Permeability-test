@@ -1,23 +1,12 @@
-"""Ionization state prediction using Dimorphite-DL pKa database.
+"""Ionization state prediction.
 
-Predicts the protonation state of a molecule at a target pH (default 5.5,
-stratum corneum surface pH) using Dimorphite-DL's experimentally-derived pKa
-database and the Henderson-Hasselbalch equation.
-
-Dimorphite-DL (Ropp et al., 2019, J. Cheminformatics 11:14) contains 40+
-SMARTS-based functional-group patterns with mean pKa values and standard
-deviations derived from curated experimental literature data.  This is
-substantially more accurate than a hand-crafted rule table.
-
-Reference
----------
-Ropp PJ, Kaminsky JC, Yablonski S, Durrant JD (2019). "Dimorphite-DL: an
-open-source program for enumerating the ionization states of drug-like small
-molecules." J Cheminform 11, 14. https://doi.org/10.1186/s13321-019-0336-9
+Detects ionizable functional groups via SMARTS patterns, predicts pKa
+using the pKaPredict LGBMRegressor model, and computes ionization state
+via Henderson-Hasselbalch.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 from rdkit import Chem
@@ -29,142 +18,75 @@ PH_SC: float = 5.5  # stratum corneum surface pH
 
 IonType = Literal["acid", "base"]
 
-# ---------------------------------------------------------------------------
-# Dimorphite-DL group → acid / base classification
-#
-# Dimorphite-DL's 40+ functional-group patterns are classified into two
-# categories:
-#   'base'  – neutral nitrogen that gains H⁺ at pH < pKa  (+1 charge)
-#   'acid'  – neutral X-H group that loses H⁺ at pH > pKa (-1 charge)
-#
-# Groups are taken directly from PKaData.get_substructures() names.
-# ---------------------------------------------------------------------------
-_BASE_GROUPS: frozenset[str] = frozenset(
-    {
-        "AmidineGuanidine1",       # R-C(=NH)-NR2,  pKa ~12 (strong base)
-        "AmidineGuanidine2",       # R2N-C=NR,       pKa ~10
-        "Anilines_primary",        # Ar-NH2,          pKa ~3.9 (weak base)
-        "Anilines_secondary",      # Ar-NHR,          pKa ~4.3
-        "Anilines_tertiary",       # Ar-NR2,          pKa ~4.2
-        "Aromatic_nitrogen_unprotonated",   # pyridine-type,  pKa ~4.4
-        "*Aromatic_nitrogen_protonated",    # protonated aromatic N, pKa ~7.2 (dimorphite_dl v2 name has * prefix)
-        "Amines_primary_secondary_tertiary",  # aliphatic N, pKa ~8.2
-        "Primary_hydroxyl_amine",  # NH2OH,           pKa ~4.0
-    }
-)
-
-# Groups to skip outright (sentinel / non-ionizable at any physiological pH)
-_SKIP_GROUPS: frozenset[str] = frozenset(
-    {
-        "Nitro",  # pKa = -1000, never ionizes at physiological pH
-    }
-)
 
 # ---------------------------------------------------------------------------
-# Public data-classes  (unchanged interface from previous implementation)
+# SMARTS-based ionizable group detection
 # ---------------------------------------------------------------------------
+
+_ACID_SMARTS: list[tuple[str, str]] = [
+    ("[CX3](=O)[OX2H1]", "carboxylic_acid"),
+    ("[c][OX2H1]",        "phenol"),
+    ("[SX2H1]",           "thiol"),
+    ("[NH1]S(=O)(=O)",    "sulfonamide"),
+    ("[NH2]S(=O)(=O)",    "sulfonamide"),
+    ("[PX4](=O)[OX2H1]", "phosphate"),
+]
+
+_BASE_SMARTS: list[tuple[str, str]] = [
+    ("[NX3H2;!$(NC=O);!$(NS(=O)(=O))]",          "primary_amine"),
+    ("[NX3H1;!$(NC=O);!$(NS(=O)(=O));!$([nH])]",  "secondary_amine"),
+    ("[NX3H0;!$(NC=O);!$(NS(=O)(=O))]",           "tertiary_amine"),
+    ("[nX2H0]",                                     "pyridine_like"),
+    ("[$([CX3](=[NX2])([NX3])[NX3])]",            "guanidine"),
+    ("[$([CX3](=[NX2])[NX3])]",                   "amidine"),
+]
 
 
 @dataclass
-class IonizableGroup:
-    """One ionizable functional group found in a molecule."""
-
-    description: str
-    pka: float
+class DetectedGroup:
+    """An ionizable functional group detected via SMARTS."""
+    name: str
     ion_type: IonType
-    #: fraction of this group in its neutral form at the target pH
-    fraction_neutral: float
-    #: mean charge contribution of this group at the target pH
-    mean_charge: float
 
 
-@dataclass
-class IonizationResult:
-    """Full ionization analysis for one molecule at a given pH."""
+def detect_ionizable_groups(mol: Chem.Mol) -> list[DetectedGroup]:
+    """Detect ionizable functional groups in *mol* using SMARTS patterns.
 
-    ph: float
-    #: all ionizable groups detected
-    groups: list[IonizableGroup] = field(default_factory=list)
-    #: True when the pKaPredict ML model successfully refined at least one group pKa
-    pka_ml_used: bool = False
+    Returns a deduplicated list of :class:`DetectedGroup` instances.
+    """
+    groups: list[DetectedGroup] = []
+    claimed: set[int] = set()
 
-    # ── Summary properties ─────────────────────────────────────────────────
+    for patterns, ion_type in [(_ACID_SMARTS, "acid"), (_BASE_SMARTS, "base")]:
+        for smarts_str, name in patterns:
+            pattern = Chem.MolFromSmarts(smarts_str)
+            if pattern is None:
+                continue
+            for match in mol.GetSubstructMatches(pattern):
+                key = match[0]
+                if key in claimed:
+                    continue
+                claimed.add(key)
+                groups.append(DetectedGroup(name=name, ion_type=ion_type))
 
-    @property
-    def non_ionizable(self) -> bool:
-        return not self.groups
+    return groups
 
-    @property
-    def mean_charge(self) -> float:
-        """Net mean charge at *ph* summed across all ionizable groups."""
-        return sum(g.mean_charge for g in self.groups)
 
-    @property
-    def dominant_group(self) -> IonizableGroup | None:
-        """Group whose pKa is closest to the target pH (most influential)."""
-        if not self.groups:
-            return None
-        return min(self.groups, key=lambda g: abs(g.pka - self.ph))
-
-    @property
-    def dominant_pka(self) -> float | None:
-        g = self.dominant_group
-        return g.pka if g else None
-
-    @property
-    def dominant_type(self) -> IonType | None:
-        g = self.dominant_group
-        return g.ion_type if g else None
-
-    @property
-    def fraction_neutral_dominant(self) -> float | None:
-        """Fraction neutral of the dominant (closest-to-pH) group."""
-        g = self.dominant_group
-        return g.fraction_neutral if g else None
-
-    @property
-    def fraction_neutral_total(self) -> float:
-        """Fraction of molecules where ALL ionizable groups are simultaneously neutral.
-
-        Computed as the product of per-group fraction_neutral values, which
-        is the correct approximation for independent equilibria.  For a single
-        ionizable group this equals fraction_neutral_dominant.
-        """
-        result = 1.0
-        for g in self.groups:
-            result *= g.fraction_neutral
-        return result
-
-    @property
-    def ionization_class(self) -> str:
-        """Broad ionization class at the target pH.
-
-        Returns one of:
-        ``'non_ionizable'``, ``'neutral'``, ``'acid'``, ``'base'``,
-        ``'zwitterion'``.
-        """
-        if self.non_ionizable:
-            return "non_ionizable"
-
-        acid_charge = sum(
-            g.mean_charge for g in self.groups if g.ion_type == "acid"
-        )
-        base_charge = sum(
-            g.mean_charge for g in self.groups if g.ion_type == "base"
-        )
-        net = self.mean_charge
-
-        if acid_charge < -0.1 and base_charge > 0.1:
-            return "zwitterion"
-        if net < -0.1:
-            return "acid"
-        if net > 0.1:
-            return "base"
-        return "neutral"
+def classify_ionization(groups: list[DetectedGroup]) -> str:
+    """Classify a molecule as non_ionizable / acid / base / ampholyte."""
+    if not groups:
+        return "non_ionizable"
+    has_acid = any(g.ion_type == "acid" for g in groups)
+    has_base = any(g.ion_type == "base" for g in groups)
+    if has_acid and has_base:
+        return "ampholyte"
+    if has_acid:
+        return "acid"
+    return "base"
 
 
 # ---------------------------------------------------------------------------
-# Henderson-Hasselbalch helpers  (unchanged)
+# Henderson-Hasselbalch helpers
 # ---------------------------------------------------------------------------
 
 
@@ -197,24 +119,7 @@ def _hhb_base(pka: float, ph: float) -> tuple[float, float]:
 
 
 # ---------------------------------------------------------------------------
-# Dimorphite-DL integration
-# ---------------------------------------------------------------------------
-
-
-def _get_detector():
-    """Lazily instantiate (and cache) the Dimorphite-DL detector."""
-    if _get_detector._instance is None:
-        from dimorphite_dl.protonate.detect import ProtonationSiteDetector
-
-        _get_detector._instance = ProtonationSiteDetector()
-    return _get_detector._instance
-
-
-_get_detector._instance = None  # type: ignore[attr-defined]
-
-
-# ---------------------------------------------------------------------------
-# pKaPredict integration  (molecule-specific ML pKa refinement)
+# pKaPredict integration  (molecule-specific ML pKa)
 # ---------------------------------------------------------------------------
 
 
@@ -232,11 +137,7 @@ _get_pka_model._cache = None  # type: ignore[attr-defined]
 
 
 def _ml_pka(smiles: str) -> float | None:
-    """Return a molecule-specific pKa prediction from pKaPredict, or *None* on failure.
-
-    Failures are logged to stderr so they are visible in the Streamlit terminal
-    instead of being silently swallowed.
-    """
+    """Return a molecule-specific pKa prediction from pKaPredict, or *None* on failure."""
     import sys
 
     try:
@@ -248,113 +149,3 @@ def _ml_pka(smiles: str) -> float | None:
     except Exception as exc:
         print(f"[pKaPredict] WARNING: prediction failed for {smiles!r}: {exc}", file=sys.stderr)
         return None
-
-
-def ionize(mol: Chem.Mol, ph: float = PH_SC) -> IonizationResult:
-    """Predict the ionization state of *mol* at *ph*.
-
-    Uses Dimorphite-DL's experimentally-derived pKa database to detect
-    ionizable functional groups, then applies Henderson-Hasselbalch to
-    compute the fraction-neutral and mean charge of each group.
-
-    Parameters
-    ----------
-    mol:
-        A valid RDKit molecule.
-    ph:
-        Target pH.  Defaults to 5.5 (stratum corneum surface).
-
-    Returns
-    -------
-    :class:`IonizationResult` with all matched groups and summary properties.
-    """
-    result = IonizationResult(ph=ph)
-
-    try:
-        from dimorphite_dl.mol import MoleculeRecord
-
-        smiles = Chem.MolToSmiles(mol)
-        if not smiles:
-            return result
-
-        detector = _get_detector()
-        rec = MoleculeRecord(smiles)
-        _, sites = detector.find_sites(rec)
-    except Exception:
-        # If Dimorphite-DL fails for any reason, return empty (non-ionizable)
-        return result
-
-    # Deduplicate: the same heavy atom can appear in multiple SMARTS matches
-    # (e.g. diethylamine N matches twice from each C-N bond).
-    # Use the resolved atom index from PKaDatum.idx_site as the dedup key.
-    claimed_atoms: set[int] = set()
-
-    for site in sites:
-        # Skip sentinel / non-physiological groups
-        if site.name in _SKIP_GROUPS:
-            continue
-
-        ion_type: IonType = (
-            "base" if site.name in _BASE_GROUPS else "acid"
-        )
-
-        for pka_datum in site.pkas:
-            pka = pka_datum.mean
-
-            # Skip groups that are effectively always neutral (contribute ≈1.0 to
-            # the fraction_neutral product and carry no ionization information):
-            #   • ACID  with pKa > 12 – never deprotonated at physiological pH
-            #     (e.g. Alcohol pKa≈14.8, *Amide pKa≈12.0)
-            #   • BASE  with pKa < 1  – never protonated at physiological pH
-            # Note: BASE groups with pKa > 12 (e.g. guanidinium pKa≈12.0) are
-            # kept because they are always charged, which DOES affect ionization.
-            if ion_type == "acid" and pka > 12.0:
-                continue
-            if ion_type == "base" and pka < 1.0:
-                continue
-
-            # Resolve the actual heavy-atom index this pKa datum modifies
-            atom_idx = site.idxs_match[pka_datum.idx_site]
-            if atom_idx in claimed_atoms:
-                continue
-            claimed_atoms.add(atom_idx)
-
-            if ion_type == "acid":
-                f_neutral, m_charge = _hhb_acid(pka, ph)
-            else:
-                f_neutral, m_charge = _hhb_base(pka, ph)
-
-            result.groups.append(
-                IonizableGroup(
-                    description=site.name,
-                    pka=round(pka, 3),
-                    ion_type=ion_type,
-                    fraction_neutral=f_neutral,
-                    mean_charge=m_charge,
-                )
-            )
-
-    # ── pKaPredict refinement ────────────────────────────────────────────────
-    # Dimorphite-DL assigns category-level mean pKa values (all carboxylic
-    # acids → 3.46, all aliphatic amines → 8.16, etc.).  Where possible, we
-    # replace the pKa of the *most influential* ionizable group with a
-    # molecule-specific prediction from the pKaPredict LGBMRegressor model,
-    # which is trained on RDKit descriptors and gives distinct values per
-    # molecule.
-    #
-    # Strategy: pKaPredict outputs a single pKa per molecule.  We assign that
-    # value to the group whose Dimorphite-DL pKa is numerically closest to the
-    # ML prediction (most likely to refer to the same ionisation event), then
-    # recompute its fraction_neutral and mean_charge via Henderson-Hasselbalch.
-    if result.groups:
-        ml = _ml_pka(smiles)
-        if ml is not None:
-            target = min(result.groups, key=lambda g: abs(g.pka - ml))
-            target.pka = round(ml, 3)
-            if target.ion_type == "acid":
-                target.fraction_neutral, target.mean_charge = _hhb_acid(ml, ph)
-            else:
-                target.fraction_neutral, target.mean_charge = _hhb_base(ml, ph)
-            result.pka_ml_used = True
-
-    return result
