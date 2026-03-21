@@ -36,18 +36,28 @@ st.markdown(
     p, span, label, div, .stMarkdown, .stText {
         color: #1a1a2e !important;
     }
-    /* Preserve white text on dark backgrounds */
-    .eb-hero p, .eb-hero span, .eb-hero div, .eb-hero h1,
-    .eb-metric .val, .eb-metric .lbl,
-    .eb-criteria-strip .strip-label,
-    .eb-criteria-strip .eb-pill,
-    .eb-criteria-strip .eb-pill .pill-icon,
+    /* Force white text on dark (hero) background */
+    .eb-hero, .eb-hero p, .eb-hero span, .eb-hero div, .eb-hero h1 {
+        color: #ffffff !important;
+    }
+    .eb-hero p {
+        color: #d0e4f5 !important;
+    }
+    /* Buttons: white text on blue */
     div[data-testid="stDownloadButton"] button,
     div[data-testid="stDownloadButton"] button span,
     div[data-testid="stButton"] button[kind="primary"],
     div[data-testid="stButton"] button[kind="primary"] span {
-        color: inherit !important;
+        color: #ffffff !important;
     }
+    /* Metric boxes keep their theme colors */
+    .m-total .val, .m-total .lbl         { color: #1565c0 !important; }
+    .m-pass .val, .m-pass .lbl           { color: #2e7d32 !important; }
+    .m-borderline .val, .m-borderline .lbl { color: #e65100 !important; }
+    .m-fail .val, .m-fail .lbl           { color: #c62828 !important; }
+    /* Criteria strip keeps its own colors */
+    .eb-criteria-strip .strip-label      { color: #4a5a75 !important; }
+    .eb-criteria-strip .eb-pill          { color: #1a3a65 !important; }
     [data-testid="stWidgetLabel"] label, [data-testid="stWidgetLabel"] p {
         color: #1a1a2e !important;
         font-weight: 500 !important;
