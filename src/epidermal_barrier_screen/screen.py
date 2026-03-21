@@ -110,15 +110,19 @@ def _ionization_status(fraction_unionized: float) -> str:
 def _final_result(statuses: list[str]) -> str:
     """Derive overall PASS / BORDERLINE / FAIL from per-criterion statuses.
 
-    PASS       – all criteria optimal (no flags)
-    BORDERLINE – one or more suboptimal, but no poor
-    FAIL       – one or more poor (strong failure in a core parameter)
+    PASS       – at most 1 non-optimal criterion (suboptimal or poor)
+    BORDERLINE – multiple suboptimal with no poor, or up to 2 poor
+    FAIL       – 3 or more poor criteria
     """
-    if "poor" in statuses:
-        return "FAIL"
-    if "suboptimal" in statuses:
+    n_poor = statuses.count("poor")
+    n_suboptimal = statuses.count("suboptimal")
+    n_non_optimal = n_poor + n_suboptimal
+
+    if n_non_optimal <= 1:
+        return "PASS"
+    if n_poor <= 2:
         return "BORDERLINE"
-    return "PASS"
+    return "FAIL"
 
 
 def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataFrame:

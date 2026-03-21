@@ -36,6 +36,15 @@ st.markdown(
     p, span, label, div, .stMarkdown, .stText {
         color: #1a1a2e !important;
     }
+    /* Preserve white text on dark backgrounds */
+    .eb-hero p, .eb-hero span, .eb-hero div, .eb-hero h1,
+    .eb-metric .val, .eb-metric .lbl,
+    div[data-testid="stDownloadButton"] button,
+    div[data-testid="stDownloadButton"] button span,
+    div[data-testid="stButton"] button[kind="primary"],
+    div[data-testid="stButton"] button[kind="primary"] span {
+        color: inherit !important;
+    }
     [data-testid="stWidgetLabel"] label, [data-testid="stWidgetLabel"] p {
         color: #1a1a2e !important;
         font-weight: 500 !important;
