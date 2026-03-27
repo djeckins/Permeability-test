@@ -17,6 +17,8 @@ dependencies = [
   "torch_geometric",
   "numpy",
   "tqdm",
+  "matplotlib",
+  "scikit-learn",
 ]
 
 [tool.setuptools]
