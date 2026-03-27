@@ -287,7 +287,7 @@ _STATUS_COLS = [
 _CLASS_COLS = [
     "MW_class", "LogD_class", "TPSA_class",
     "FormalCharge_class", "UnionizedFraction_class",
-    "HBD_class", "RotB_class",
+    "HBD_class", "HBA_class", "RotB_class",
 ]
 
 # Numeric column → its NEW class column (drives colour-coding in the table)
@@ -298,6 +298,7 @@ _NUMERIC_CLASS = {
     "formal_charge":      "FormalCharge_class",
     "fraction_unionized": "UnionizedFraction_class",
     "hbd":                "HBD_class",
+    "hba":                "HBA_class",
     "rotb":               "RotB_class",
 }
 
@@ -305,13 +306,14 @@ _NUMERIC_CLASS = {
 _DISPLAY_COLS = [
     "name",
     # ── Raw descriptors ──────────────────────────────────────────────────────
-    "mw", "tpsa", "hbd", "rotb",
-    "hba", "hac",               # informational — no colour coding
-    "logd", "fraction_unionized", "formal_charge",
+    "mw", "tpsa", "hbd", "hba", "rotb",
+    "hac",                      # informational — no colour coding
+    "clogp",                    # logP (RDKit cLogP, pH-independent)
+    "logd", "unionized", "fraction_unionized", "formal_charge",
     # ── New classification columns ───────────────────────────────────────────
     "MW_class", "LogD_class", "TPSA_class",
     "FormalCharge_class", "UnionizedFraction_class",
-    "HBD_class", "RotB_class",
+    "HBD_class", "HBA_class", "RotB_class",
     # ── Summary ──────────────────────────────────────────────────────────────
     "WeightedScore", "CorePoorCount", "FinalDecision",
 ]
@@ -511,13 +513,14 @@ st.markdown(
 
 # ── Criteria overview strip ──────────────────────────────────────────────────
 _CRITERIA_PILLS = [
-    ("⚖️", "MW  ×20"),
-    ("🧪", "LogD  ×20"),
-    ("◉",  "TPSA  ×15"),
-    ("±",  "Formal Charge  ×15"),
-    ("⚡", "Ionization  ×15"),
-    ("🔗", "HBD  ×5"),
-    ("↻",  "Rotatable Bonds  ×5"),
+    ("⚖️", "MW  ×17"),
+    ("🧪", "LogD  ×17"),
+    ("◉",  "TPSA  ×14"),
+    ("±",  "Formal Charge  ×14"),
+    ("⚡", "Ionization  ×14"),
+    ("🔗", "HBD  ×7"),
+    ("🔗", "HBA  ×7"),
+    ("↻",  "RotB  ×10"),
 ]
 _pills_html = "".join(
     f'<span class="eb-pill"><span class="pill-icon">{icon}</span>{label}</span>'
@@ -657,7 +660,10 @@ if run:
             "TPSA_class":             st.column_config.TextColumn("TPSA Class"),
             "FormalCharge_class":     st.column_config.TextColumn("Charge Class"),
             "UnionizedFraction_class":st.column_config.TextColumn("Ioniz. Class"),
+            "clogp":                  st.column_config.NumberColumn("logP (cLogP)"),
+            "unionized":              st.column_config.NumberColumn("Unionized (logD/logP)"),
             "HBD_class":              st.column_config.TextColumn("HBD Class"),
+            "HBA_class":              st.column_config.TextColumn("HBA Class"),
             "RotB_class":             st.column_config.TextColumn("RotB Class"),
             "WeightedScore":          st.column_config.NumberColumn("Score /100"),
             "CorePoorCount":          st.column_config.NumberColumn("Core Poor"),
@@ -686,19 +692,20 @@ with st.expander("📋  Screening criteria reference"):
         Per-criterion classification: 🟢 **optimal** · 🟡 **acceptable** · 🔴 **poor**
 
         **Scoring** — optimal = full weight · acceptable = ½ weight · poor = 0.
-        Maximum raw score = 95; normalised to 100.
+        Weights sum to exactly 100 (no normalisation needed).
 
         | Criterion | Weight | Optimal | Acceptable | Poor |
         |:---|:---:|:---:|:---:|:---:|
-        | **MW** ⭐ | 20 | ≤ 400 Da | 400–500 Da | > 500 Da |
-        | **LogD** ⭐ | 20 | 1.0–3.5 | 0.5–1.0 or 3.5–4.5 | < 0.5 or > 4.5 |
-        | **TPSA** ⭐ | 15 | ≤ 90 Å² | 90–120 Å² | > 120 Å² |
-        | **Formal charge** ⭐ | 15 | 0 | ±1 | ≥ ±2 |
-        | **Fraction unionized** ⭐ | 15 | ≥ 0.40 | 0.10–0.40 | < 0.10 |
-        | **HBD** | 5 | ≤ 2 | 3 | ≥ 4 |
-        | **Rotatable bonds** | 5 | ≤ 8 | 9–12 | > 12 |
+        | **MW** ⭐ | 17 | ≤ 400 Da | 400–500 Da | > 500 Da |
+        | **LogD** ⭐ | 17 | 1.0–3.5 | 0.5–1.0 or 3.5–4.5 | < 0.5 or > 4.5 |
+        | **TPSA** ⭐ | 14 | ≤ 90 Å² | 90–120 Å² | > 120 Å² |
+        | **Formal charge** ⭐ | 14 | 0 | ±1 | ≥ ±2 |
+        | **Fraction unionized** ⭐ | 14 | ≥ 0.40 | 0.10–0.40 | < 0.10 |
+        | **HBD** | 7 | ≤ 2 | 3 | ≥ 4 |
+        | **HBA** | 7 | 2–8 | 0–1 or 9–10 | > 10 |
+        | **Rotatable bonds** | 10 | ≤ 7 | 8–10 | > 10 |
 
-        ⭐ = core criterion · HBA and HAC are informational only.
+        ⭐ = core criterion · HAC is informational only.
 
         **Decision rules:**
         - **PASS** — WeightedScore ≥ 75 **and** CorePoorCount = 0
