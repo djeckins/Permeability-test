@@ -84,11 +84,18 @@ def _classify_formal_charge(v: int) -> str:
 
 
 def _classify_unionized(v: float | None) -> str:
+    """Classify the unionized percentage (0–100+%).
+
+    Thresholds are in percent:
+    - optimal:    >= 40 %
+    - acceptable: >= 10 %
+    - poor:       <  10 %
+    """
     if v is None:
         return "poor"
-    if v >= 0.40:
+    if v >= 40.0:
         return "optimal"
-    if v >= 0.10:
+    if v >= 10.0:
         return "acceptable"
     return "poor"
 
@@ -109,22 +116,22 @@ def _classify_hba(v: int) -> str:
     return "poor"
 
 
-def _compute_unionized(logd: float | None, logp: float | None) -> float | None:
-    """Compute the unionized fraction from logD and logP.
+def _compute_unionized_pct(logd: float | None, logp: float | None) -> float | None:
+    """Compute the unionized percentage from logD and logP.
 
-    Formula:
-        unionized = 10 ** (logD - logP)
+    Derivation:
+        logD = logP + log10(f_neutral)   [standard pH-partition relationship]
+        → f_neutral = 10 ** (logD - logP)
+        → unionized_pct = f_neutral * 100
 
-    This gives the fraction of neutral (unionized) species at the target pH.
-    The result is a continuous float in [0.0, 1.0] — NOT a binary flag.
-    Values above 1.0 (when logD > logP, e.g. due to rounding) are capped at 1.0.
+    - logD (row["logd"]): pH-adjusted, may come from pKa-corrected calculation,
+      neutral default (logD = logP), or experimental SDF input.
+    - logP (desc["clogp"]): RDKit cLogP, pH-independent.
 
-    - logD is read from the pH-adjusted logD value (row["logd"]), which may come
-      from pKa-corrected calculation, a neutral molecule default, or an
-      experimental SDF input field.
-    - logP is read from the RDKit-calculated clogP (desc["clogp"]).
-
-    Returns None when either input is missing, NaN, or non-numeric.
+    Result is in PERCENT (e.g. 27.54, 100.0).  NOT capped — values slightly
+    above 100 % can arise from experimental logD/logP rounding and are kept as-is
+    to preserve the numeric information.  Returns None when either input is
+    missing, NaN, or non-numeric.
     """
     if logd is None or logp is None:
         return None
@@ -136,9 +143,8 @@ def _compute_unionized(logd: float | None, logp: float | None) -> float | None:
     import math as _math
     if _math.isnan(ld) or _math.isnan(lp):
         return None
-    raw = 10.0 ** (ld - lp)
-    # Cap at 1.0 — unionized fraction cannot exceed 100 %
-    return round(min(raw, 1.0), 4)
+    # fraction neutral = 10^(logD - logP); convert to percent, no cap
+    return round(10.0 ** (ld - lp) * 100.0, 2)
 
 
 def _classify_rotb(v: int) -> str:
@@ -206,10 +212,11 @@ def _charge_status(v: int) -> str:
     return "poor"
 
 
-def _ionization_status(fraction_unionized: float | None) -> str:
-    if fraction_unionized is None:   return "poor"
-    if fraction_unionized >= 0.40:   return "optimal"
-    if fraction_unionized >= 0.10:   return "suboptimal"
+def _ionization_status(pct_unionized: float | None) -> str:
+    """Legacy status from unionized percentage (0–100+%)."""
+    if pct_unionized is None:  return "poor"
+    if pct_unionized >= 40.0:  return "optimal"
+    if pct_unionized >= 10.0:  return "suboptimal"
     return "poor"
 
 
@@ -308,8 +315,9 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
             else:
                 f_neutral, charge = _hhb_acid(pka_val, ph)
             row["predicted_pka"]       = round(pka_val, 2)
-            row["fraction_unionized"]  = round(f_neutral, 4)
-            row["fraction_ionized"]    = round(1.0 - f_neutral, 4)
+            # Store as percent (0–100); raw f_neutral kept for logD calc below
+            row["fraction_unionized"]  = round(f_neutral * 100.0, 2)
+            row["fraction_ionized"]    = round((1.0 - f_neutral) * 100.0, 2)
             row["expected_net_charge"] = round(charge, 4)
             row["logd"]        = round(desc["clogp"] + math.log10(max(f_neutral, 1e-10)), 4)
             row["logd_method"] = "pKa-corrected (input)"
@@ -320,7 +328,7 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
 
             if ion_type == "non_ionizable" or pka_val is None:
                 row["predicted_pka"]       = None
-                row["fraction_unionized"]  = 1.0
+                row["fraction_unionized"]  = 100.0   # 100 % neutral
                 row["fraction_ionized"]    = 0.0
                 row["expected_net_charge"] = 0.0
                 row["logd"]        = desc["clogp"]
@@ -331,8 +339,9 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
                 else:
                     f_neutral, charge = _hhb_acid(pka_val, ph)
                 row["predicted_pka"]       = round(pka_val, 2)
-                row["fraction_unionized"]  = round(f_neutral, 4)
-                row["fraction_ionized"]    = round(1.0 - f_neutral, 4)
+                # Store as percent; raw f_neutral used for logD calc
+                row["fraction_unionized"]  = round(f_neutral * 100.0, 2)
+                row["fraction_ionized"]    = round((1.0 - f_neutral) * 100.0, 2)
                 row["expected_net_charge"] = round(charge, 4)
                 row["logd"]        = round(desc["clogp"] + math.log10(max(f_neutral, 1e-10)), 4)
                 row["logd_method"] = "pKa-corrected (pKaLearn)"
@@ -343,11 +352,11 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
             row["logd"]        = input_logd
             row["logd_method"] = "input (experimental)"
 
-        # ── unionized: continuous fraction from logD and logP ────────────────
+        # ── unionized %: percent of neutral species from logD and logP ──────────
         # logD is row["logd"] (pH-adjusted, fully resolved above)
         # logP is desc["clogp"] (RDKit cLogP, pH-independent)
-        # Formula: unionized = 10 ** (logD - logP)   — continuous float [0,1]
-        row["unionized"] = _compute_unionized(row.get("logd"), desc.get("clogp"))
+        # Formula: unionized_pct = 10 ** (logD - logP) * 100   — percent, NOT capped
+        row["unionized"] = _compute_unionized_pct(row.get("logd"), desc.get("clogp"))
 
         # ── Legacy status columns (backward-compat / table colour-coding) ─────
         row["mw_status"]            = _mw_status(desc["mw"])
@@ -478,31 +487,34 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    # Self-test for _compute_unionized_pct
+    # Values are NOW in PERCENT (multiply old expected by 100)
     _CASES = [
-        # (logD,  logP,  expected_approx, description)
-        (0.94,   1.50,  0.2754,  "partial unionization"),
-        (1.00,   1.20,  0.6310,  "partial unionization"),
-        (-1.00,  1.00,  0.0100,  "mostly ionized"),
-        (1.60,   1.50,  1.0000,  "raw > 1, capped to 1"),
-        (None,   1.00,  None,    "missing logD → None"),
-        (1.00,   None,  None,    "missing logP → None"),
+        # (logD,  logP,  expected_%,  description)
+        (0.94,   1.50,  27.54,  "partial → 27.54 %"),
+        (1.00,   1.20,  63.10,  "partial → 63.10 %"),
+        (-1.00,  1.00,  1.00,   "mostly ionized → 1.00 %"),
+        (1.60,   1.50,  125.89, "logD > logP → > 100 %, not capped"),
+        (1.50,   1.50,  100.0,  "logD = logP → 100 %"),
+        (None,   1.00,  None,   "missing logD → None"),
+        (1.00,   None,  None,   "missing logP → None"),
         (float("nan"), 1.00, None, "NaN logD → None"),
     ]
 
     print("=" * 60)
-    print("_compute_unionized validation")
+    print("_compute_unionized_pct validation  (values in PERCENT)")
     print("=" * 60)
     all_ok = True
     for logd, logp, expected, desc in _CASES:
-        result = _compute_unionized(logd, logp)
+        result = _compute_unionized_pct(logd, logp)
         if expected is None:
             ok = result is None
         else:
-            ok = result is not None and abs(result - expected) < 0.0002
+            ok = result is not None and abs(result - expected) < 0.02
         status = "PASS" if ok else "FAIL"
         if not ok:
             all_ok = False
-        print(f"  [{status}]  logD={logd!r:>6}, logP={logp!r:>6}  →  {result!r:>10}  (expected {expected!r})  | {desc}")
+        print(f"  [{status}]  logD={logd!r:>6}, logP={logp!r:>6}  →  {str(result):>10} %  (expected {expected} %)  | {desc}")
 
     print("=" * 60)
     print("All tests PASSED" if all_ok else "SOME TESTS FAILED")
