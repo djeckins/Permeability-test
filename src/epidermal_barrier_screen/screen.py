@@ -11,9 +11,7 @@ from epidermal_barrier_screen.ionization import (
     PH_SC,
     _hhb_acid,
     _hhb_base,
-    _ml_pka,
-    classify_ionization,
-    detect_ionizable_groups,
+    predict_pka,
 )
 
 # ---------------------------------------------------------------------------
@@ -155,27 +153,21 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
         desc = calculate(mol)
         row.update(desc)
 
-        # ── Step 1: detect ionizable groups via SMARTS ────────────────────────
-        groups = detect_ionizable_groups(mol)
-        ion_class = classify_ionization(groups)
-        row["ionization_class"] = ion_class
-        n_groups = len(groups)
-
-        # ── Step 2: pKa handling ─────────────────────────────────────────────
+        # ── pKa prediction via pKaLearn GNN ──────────────────────────────────
         smiles = rec.get("canonical_smiles") or ""
         input_pka = rec.get("input_pka")
 
         if input_pka is not None:
-            # User-provided experimental pKa — highest priority
-            dominant_type: str = "acid"
-            if groups:
-                acid_n = sum(1 for g in groups if g.ion_type == "acid")
-                dominant_type = "acid" if acid_n >= len(groups) - acid_n else "base"
+            # User-provided experimental pKa — use pKaLearn only for ion-type detection
+            _, ion_type = predict_pka(smiles, name=rec.get("name", ""), ph=ph)
+            if ion_type == "non_ionizable":
+                ion_type = "acid"  # conservative fallback when type is ambiguous
+            row["ionization_class"] = ion_type
             pka_val: float = input_pka
-            if dominant_type == "acid":
-                f_neutral, charge = _hhb_acid(pka_val, ph)
-            else:
+            if ion_type == "base":
                 f_neutral, charge = _hhb_base(pka_val, ph)
+            else:
+                f_neutral, charge = _hhb_acid(pka_val, ph)
 
             row["predicted_pka"] = round(pka_val, 2)
             row["fraction_unionized"] = round(f_neutral, 4)
@@ -184,52 +176,31 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
             row["logd"] = round(desc["clogp"] + math.log10(max(f_neutral, 1e-10)), 4)
             row["logd_method"] = "pKa-corrected (input)"
 
-        elif ion_class == "non_ionizable":
-            # Case A — no ionizable groups
-            row["predicted_pka"] = None
-            row["fraction_unionized"] = 1.0
-            row["fraction_ionized"] = 0.0
-            row["expected_net_charge"] = 0.0
-            row["logd"] = desc["clogp"]
-            row["logd_method"] = "neutral (= cLogP)"
-
         else:
-            # Ionizable molecule — use pkapredict
-            ml_val = _ml_pka(smiles)
+            # Predict pKa and ion type with pKaLearn
+            pka_val, ion_type = predict_pka(smiles, name=rec.get("name", ""), ph=ph)
+            row["ionization_class"] = ion_type
 
-            if ml_val is not None:
-                # Case B — ionizable + pKa available
-                dominant_type = "acid" if ion_class in ("acid", "ampholyte") else "base"
-                if ion_class == "ampholyte":
-                    # For ampholytes pick type of most numerous group category
-                    acid_n = sum(1 for g in groups if g.ion_type == "acid")
-                    dominant_type = "acid" if acid_n >= len(groups) - acid_n else "base"
-
-                if dominant_type == "acid":
-                    f_neutral, charge = _hhb_acid(ml_val, ph)
+            if ion_type == "non_ionizable" or pka_val is None:
+                # Non-ionizable — neutral form at all relevant pH values
+                row["predicted_pka"] = None
+                row["fraction_unionized"] = 1.0
+                row["fraction_ionized"] = 0.0
+                row["expected_net_charge"] = 0.0
+                row["logd"] = desc["clogp"]
+                row["logd_method"] = "neutral (= cLogP)"
+            else:
+                if ion_type == "base":
+                    f_neutral, charge = _hhb_base(pka_val, ph)
                 else:
-                    f_neutral, charge = _hhb_base(ml_val, ph)
+                    f_neutral, charge = _hhb_acid(pka_val, ph)
 
-                row["predicted_pka"] = round(ml_val, 2)
+                row["predicted_pka"] = round(pka_val, 2)
                 row["fraction_unionized"] = round(f_neutral, 4)
                 row["fraction_ionized"] = round(1.0 - f_neutral, 4)
                 row["expected_net_charge"] = round(charge, 4)
                 row["logd"] = round(desc["clogp"] + math.log10(max(f_neutral, 1e-10)), 4)
-
-                if ion_class == "ampholyte":
-                    row["logd_method"] = "pKa-corrected (ampholyte, approximate)"
-                elif n_groups > 1:
-                    row["logd_method"] = "pKa-corrected (dominant pKa)"
-                else:
-                    row["logd_method"] = "pKa-corrected"
-            else:
-                # Case C — ionizable but pKa unavailable
-                row["predicted_pka"] = None
-                row["fraction_unionized"] = None
-                row["fraction_ionized"] = None
-                row["expected_net_charge"] = None
-                row["logd"] = None
-                row["logd_method"] = "N/A (pKa unavailable)"
+                row["logd_method"] = "pKa-corrected (pKaLearn)"
 
         # ── logD override from input ─────────────────────────────────────────
         input_logd = rec.get("input_logd_7_4")

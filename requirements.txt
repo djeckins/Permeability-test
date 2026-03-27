@@ -3,5 +3,7 @@ streamlit
 pandas
 openpyxl
 rdkit
-dimorphite_dl
-pkapredict
+torch
+torch_geometric
+numpy
+tqdm
