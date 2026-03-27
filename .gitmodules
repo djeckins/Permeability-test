@@ -1,3 +1,0 @@
-[submodule "third_party/pKaLearn"]
-	path = third_party/pKaLearn
-	url = https://github.com/MoitessierLab/pKaLearn.git
