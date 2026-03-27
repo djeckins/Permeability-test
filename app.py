@@ -653,7 +653,7 @@ if run:
             "hba":                    st.column_config.NumberColumn("HBA"),
             "hac":                    st.column_config.NumberColumn("HAC"),
             "logd":                   st.column_config.NumberColumn(f"LogD (pH {ph_input:.1f})"),
-            "fraction_unionized":     st.column_config.NumberColumn("f Unionized"),
+            "fraction_unionized":     st.column_config.NumberColumn("Unionized HHB (%)"),
             "formal_charge":          st.column_config.NumberColumn("Formal Charge"),
             "MW_class":               st.column_config.TextColumn("MW Class"),
             "LogD_class":             st.column_config.TextColumn("LogD Class"),
@@ -661,7 +661,7 @@ if run:
             "FormalCharge_class":     st.column_config.TextColumn("Charge Class"),
             "UnionizedFraction_class":st.column_config.TextColumn("Ioniz. Class"),
             "clogp":                  st.column_config.NumberColumn("logP (cLogP)"),
-            "unionized":              st.column_config.NumberColumn("Unionized (logD/logP)"),
+            "unionized":              st.column_config.NumberColumn("Unionized logD/logP (%)"),
             "HBD_class":              st.column_config.TextColumn("HBD Class"),
             "HBA_class":              st.column_config.TextColumn("HBA Class"),
             "RotB_class":             st.column_config.TextColumn("RotB Class"),
@@ -700,7 +700,7 @@ with st.expander("📋  Screening criteria reference"):
         | **LogD** ⭐ | 17 | 1.0–3.5 | 0.5–1.0 or 3.5–4.5 | < 0.5 or > 4.5 |
         | **TPSA** ⭐ | 14 | ≤ 90 Å² | 90–120 Å² | > 120 Å² |
         | **Formal charge** ⭐ | 14 | 0 | ±1 | ≥ ±2 |
-        | **Fraction unionized** ⭐ | 14 | ≥ 0.40 | 0.10–0.40 | < 0.10 |
+        | **Fraction unionized** ⭐ | 14 | ≥ 40 % | 10–40 % | < 10 % |
         | **HBD** | 7 | ≤ 2 | 3 | ≥ 4 |
         | **HBA** | 7 | 2–8 | 0–1 or 9–10 | > 10 |
         | **Rotatable bonds** | 10 | ≤ 7 | 8–10 | > 10 |
