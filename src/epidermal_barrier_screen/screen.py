@@ -21,9 +21,9 @@ from epidermal_barrier_screen.ionization import (
 
 
 def _mw_status(v: float) -> str:
-    if v < 300:
-        return "optimal"
     if v <= 500:
+        return "optimal"
+    if v <= 600:
         return "suboptimal"
     return "poor"
 

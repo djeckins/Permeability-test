@@ -14,7 +14,7 @@ from epidermal_barrier_screen.screen import screen_records
 
 # ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Epidermal Barrier Screen",
+    page_title="Permeability Screening Tool",
     page_icon="🧪",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -63,14 +63,39 @@ st.markdown(
         font-weight: 500 !important;
     }
     .stTabs [data-baseweb="tab"] {
-        color: #2a3a5c !important;
+        color: #ffffff !important;
         font-weight: 600 !important;
     }
-    .stTextArea textarea, .stNumberInput input {
-        color: #1a1a2e !important;
+    .stTextArea textarea {
+        color: #ffffff !important;
+        background-color: #1a3a5c !important;
+        border: 1px solid #3a6a9c !important;
     }
     .stTextArea textarea::placeholder {
-        color: #7a8a9e !important;
+        color: #90afc8 !important;
+    }
+    .stNumberInput input {
+        color: #ffffff !important;
+        background-color: #1a3a5c !important;
+        border: 1px solid #3a6a9c !important;
+    }
+    /* Run Screening button — force white text on all child elements */
+    div[data-testid="stButton"] button[kind="primary"],
+    div[data-testid="stButton"] button[kind="primary"] span,
+    div[data-testid="stButton"] button[kind="primary"] p {
+        color: #ffffff !important;
+    }
+    /* File uploader text */
+    [data-testid="stFileUploader"] label,
+    [data-testid="stFileUploader"] span,
+    [data-testid="stFileUploader"] p,
+    [data-testid="stFileUploader"] small,
+    [data-testid="stFileUploader"] button span {
+        color: #ffffff !important;
+    }
+    /* Tab labels white */
+    .stTabs [data-baseweb="tab"] span {
+        color: #ffffff !important;
     }
     [data-testid="stHeader"] { background: transparent; }
 
@@ -268,7 +293,7 @@ _NUMERIC_STATUS = {
     "fraction_unionized":    "ionization_status",
 }
 
-# Columns shown in the Streamlit table
+# Columns shown in the Streamlit table (pKa, ionization class, cLogP and LogD method hidden)
 _DISPLAY_COLS = [
     "name",
     "mw",
@@ -276,11 +301,7 @@ _DISPLAY_COLS = [
     "hbd",
     "rotb",
     "hac",
-    "predicted_pka",
-    "ionization_class",
-    "clogp",
     "logd",
-    "logd_method",
     "fraction_unionized",
     "formal_charge",
     "final_result",
@@ -462,8 +483,8 @@ st.markdown(
     <div class="eb-hero">
       <div class="eb-hero-art">{_HERO_SVG}</div>
       <div class="eb-hero-content">
-        <h1>Epidermal Barrier Screening Tool</h1>
-        <p>Evaluate compounds for epidermal barrier permeation potential.<br>
+        <h1>Permeability Screening Tool</h1>
+        <p>Evaluate compounds for permeability potential.<br>
            Supports single SMILES, SMILES lists, SDF files, and ZIP archives.</p>
       </div>
     </div>
@@ -611,11 +632,7 @@ if run:
             "hbd": st.column_config.NumberColumn("HBD"),
             "rotb": st.column_config.NumberColumn("RB"),
             "hac": st.column_config.NumberColumn("HAC"),
-            "predicted_pka": st.column_config.NumberColumn("pKa"),
-            "ionization_class": st.column_config.TextColumn("Ionization"),
-            "clogp": st.column_config.NumberColumn("cLogP"),
             "logd": st.column_config.NumberColumn(f"LogD (pH {ph_input:.1f})"),
-            "logd_method": st.column_config.TextColumn("LogD Method", width="small"),
             "fraction_unionized": st.column_config.NumberColumn(
                 f"Fraction Unionized (pH {ph_input:.1f})"
             ),
@@ -648,7 +665,7 @@ with st.expander("📋  Screening criteria reference"):
 
         | Criterion | Optimal | Suboptimal | Poor |
         |:---|:---:|:---:|:---:|
-        | **MW** | < 300 Da | 300–500 Da | > 500 Da |
+        | **MW** | ≤ 500 Da | 500–600 Da | > 600 Da |
         | **LogD / cLogP** | 1–3 | 0.5–1 or 3–5 | < 0.5 or > 5 |
         | **TPSA** | < 60 Å² | 60–130 Å² | > 130 Å² |
         | **HBD** | 0–3 | 4–5 | > 5 |
@@ -661,7 +678,7 @@ with st.expander("📋  Screening criteria reference"):
         > **Ionization is mandatory** — a molecule that is mostly ionised at the stratum corneum
         > surface pH (5.5) automatically results in FAIL regardless of other properties.
 
-        pKa predicted using **Dimorphite-DL** (Ropp et al., 2019, *J. Cheminformatics* 11:14).
+        pKa predicted using **pKaLearn** GNN (Genzling et al., 2024, *ChemRxiv*).
         Overridden by `pKa` / `input_pka` SDF property when present.
         """
     )
