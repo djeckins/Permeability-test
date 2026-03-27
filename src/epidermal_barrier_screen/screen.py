@@ -26,22 +26,23 @@ from epidermal_barrier_screen.ionization import (
 
 @dataclass(frozen=True)
 class _CriterionCfg:
-    weight: float   # contribution to the 95-point maximum raw score
+    weight: float   # contribution to the 100-point maximum raw score
     is_core: bool   # True → counted in CorePoorCount
 
 
 # Edit weights / thresholds here; do NOT touch screen_records().
 _CRITERIA: dict[str, _CriterionCfg] = {
-    "MW":                _CriterionCfg(weight=20, is_core=True),
-    "LogD":              _CriterionCfg(weight=20, is_core=True),
-    "TPSA":              _CriterionCfg(weight=15, is_core=True),
-    "FormalCharge":      _CriterionCfg(weight=15, is_core=True),
-    "UnionizedFraction": _CriterionCfg(weight=15, is_core=True),
-    "HBD":               _CriterionCfg(weight=5,  is_core=False),
-    "RotB":              _CriterionCfg(weight=5,  is_core=False),
+    "MW":                _CriterionCfg(weight=17, is_core=True),
+    "LogD":              _CriterionCfg(weight=17, is_core=True),
+    "TPSA":              _CriterionCfg(weight=14, is_core=True),
+    "FormalCharge":      _CriterionCfg(weight=14, is_core=True),
+    "UnionizedFraction": _CriterionCfg(weight=14, is_core=True),
+    "HBD":               _CriterionCfg(weight=7,  is_core=False),
+    "HBA":               _CriterionCfg(weight=7,  is_core=False),
+    "RotB":              _CriterionCfg(weight=10, is_core=False),
 }
 
-_MAX_RAW_SCORE: float = sum(c.weight for c in _CRITERIA.values())  # 95
+_MAX_RAW_SCORE: float = sum(c.weight for c in _CRITERIA.values())  # 100
 
 
 # ---------------------------------------------------------------------------
@@ -100,10 +101,50 @@ def _classify_hbd(v: int) -> str:
     return "poor"
 
 
-def _classify_rotb(v: int) -> str:
-    if v <= 8:
+def _classify_hba(v: int) -> str:
+    if 2 <= v <= 8:
         return "optimal"
-    if v <= 12:
+    if v <= 1 or (8 < v <= 10):
+        return "acceptable"
+    return "poor"
+
+
+def _compute_unionized(logd: float | None, logp: float | None) -> float | None:
+    """Compute the unionized fraction from logD and logP.
+
+    Formula:
+        unionized = 10 ** (logD - logP)
+
+    This gives the fraction of neutral (unionized) species at the target pH.
+    The result is a continuous float in [0.0, 1.0] — NOT a binary flag.
+    Values above 1.0 (when logD > logP, e.g. due to rounding) are capped at 1.0.
+
+    - logD is read from the pH-adjusted logD value (row["logd"]), which may come
+      from pKa-corrected calculation, a neutral molecule default, or an
+      experimental SDF input field.
+    - logP is read from the RDKit-calculated clogP (desc["clogp"]).
+
+    Returns None when either input is missing, NaN, or non-numeric.
+    """
+    if logd is None or logp is None:
+        return None
+    try:
+        ld = float(logd)
+        lp = float(logp)
+    except (TypeError, ValueError):
+        return None
+    import math as _math
+    if _math.isnan(ld) or _math.isnan(lp):
+        return None
+    raw = 10.0 ** (ld - lp)
+    # Cap at 1.0 — unionized fraction cannot exceed 100 %
+    return round(min(raw, 1.0), 4)
+
+
+def _classify_rotb(v: int) -> str:
+    if v <= 7:
+        return "optimal"
+    if v <= 10:
         return "acceptable"
     return "poor"
 
@@ -141,15 +182,14 @@ def _hbd_status(v: int) -> str:
 
 
 def _hba_status(v: int) -> str:
-    """Informational only — not used in weighted scoring."""
-    if 2 <= v <= 8:    return "optimal"
-    if 8 < v <= 10:    return "suboptimal"
+    if 2 <= v <= 8:        return "optimal"
+    if v <= 1 or v <= 10:  return "suboptimal"
     return "poor"
 
 
 def _rotb_status(v: int) -> str:
-    if v <= 8:     return "optimal"
-    if v <= 12:    return "suboptimal"
+    if v <= 7:     return "optimal"
+    if v <= 10:    return "suboptimal"
     return "poor"
 
 
@@ -185,9 +225,12 @@ def _criterion_score(cls: str, weight: float) -> float:
 
 
 def _compute_weighted_score(classes: dict[str, str]) -> float:
-    """Return the normalised weighted score on a 0–100 scale (1 d.p.)."""
+    """Return the weighted score on a 0–100 scale (weights already sum to 100).
+
+    WeightedScore = raw_score  (no normalisation needed).
+    """
     raw = sum(_criterion_score(classes[k], _CRITERIA[k].weight) for k in _CRITERIA)
-    return round((raw / _MAX_RAW_SCORE) * 100, 1)
+    return round(raw, 1)
 
 
 def _count_core_poor(classes: dict[str, str]) -> int:
@@ -300,12 +343,18 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
             row["logd"]        = input_logd
             row["logd_method"] = "input (experimental)"
 
+        # ── unionized: continuous fraction from logD and logP ────────────────
+        # logD is row["logd"] (pH-adjusted, fully resolved above)
+        # logP is desc["clogp"] (RDKit cLogP, pH-independent)
+        # Formula: unionized = 10 ** (logD - logP)   — continuous float [0,1]
+        row["unionized"] = _compute_unionized(row.get("logd"), desc.get("clogp"))
+
         # ── Legacy status columns (backward-compat / table colour-coding) ─────
         row["mw_status"]            = _mw_status(desc["mw"])
         row["logd_status"]          = _logd_status(row["logd"])
         row["tpsa_status"]          = _tpsa_status(desc["tpsa"])
         row["hbd_status"]           = _hbd_status(desc["hbd"])
-        row["hba_status"]           = _hba_status(desc["hba"])        # informational
+        row["hba_status"]           = _hba_status(desc["hba"])
         row["rotb_status"]          = _rotb_status(desc["rotb"])
         row["hac_status"]           = _hac_status(desc["hac"])        # informational
         row["formal_charge_status"] = _charge_status(desc["formal_charge"])
@@ -319,6 +368,7 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
             "FormalCharge":      _classify_formal_charge(desc["formal_charge"]),
             "UnionizedFraction": _classify_unionized(row["fraction_unionized"]),
             "HBD":               _classify_hbd(desc["hbd"]),
+            "HBA":               _classify_hba(desc["hba"]),
             "RotB":              _classify_rotb(desc["rotb"]),
         }
 
@@ -328,6 +378,7 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
         row["FormalCharge_class"]      = classes["FormalCharge"]
         row["UnionizedFraction_class"] = classes["UnionizedFraction"]
         row["HBD_class"]               = classes["HBD"]
+        row["HBA_class"]               = classes["HBA"]
         row["RotB_class"]              = classes["RotB"]
 
         # ── Per-criterion score contributions ─────────────────────────────────
@@ -337,6 +388,7 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
         row["FormalCharge_score"]      = _criterion_score(classes["FormalCharge"],     _CRITERIA["FormalCharge"].weight)
         row["UnionizedFraction_score"] = _criterion_score(classes["UnionizedFraction"],_CRITERIA["UnionizedFraction"].weight)
         row["HBD_score"]               = _criterion_score(classes["HBD"],              _CRITERIA["HBD"].weight)
+        row["HBA_score"]               = _criterion_score(classes["HBA"],              _CRITERIA["HBA"].weight)
         row["RotB_score"]              = _criterion_score(classes["RotB"],              _CRITERIA["RotB"].weight)
 
         # ── Final weighted score and decision ─────────────────────────────────
@@ -364,6 +416,9 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
         "ionization_class",
         "clogp",
         "logd",
+        # unionized: continuous float [0,1] derived from 10**(logD-logP)
+        # NOT a binary flag — represents the neutral species fraction at pH
+        "unionized",
         "logd_method",
         "fraction_unionized",
         "fraction_ionized",
@@ -386,6 +441,7 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
         "FormalCharge_class",
         "UnionizedFraction_class",
         "HBD_class",
+        "HBA_class",
         "RotB_class",
         # ── Per-criterion score contributions ─────────────────────────────────
         "MW_score",
@@ -394,6 +450,7 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
         "FormalCharge_score",
         "UnionizedFraction_score",
         "HBD_score",
+        "HBA_score",
         "RotB_score",
         # ── Summary ───────────────────────────────────────────────────────────
         "WeightedScore",
@@ -409,4 +466,44 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
     for col in col_order:
         if col not in df.columns:
             df[col] = None
+    # Ensure unionized column is numeric float dtype
+    if "unionized" in df.columns:
+        df["unionized"] = pd.to_numeric(df["unionized"], errors="coerce")
     return df[col_order]
+
+
+# ---------------------------------------------------------------------------
+# Self-test / validation for _compute_unionized
+# Run:  python -m epidermal_barrier_screen.screen
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    _CASES = [
+        # (logD,  logP,  expected_approx, description)
+        (0.94,   1.50,  0.2754,  "partial unionization"),
+        (1.00,   1.20,  0.6310,  "partial unionization"),
+        (-1.00,  1.00,  0.0100,  "mostly ionized"),
+        (1.60,   1.50,  1.0000,  "raw > 1, capped to 1"),
+        (None,   1.00,  None,    "missing logD → None"),
+        (1.00,   None,  None,    "missing logP → None"),
+        (float("nan"), 1.00, None, "NaN logD → None"),
+    ]
+
+    print("=" * 60)
+    print("_compute_unionized validation")
+    print("=" * 60)
+    all_ok = True
+    for logd, logp, expected, desc in _CASES:
+        result = _compute_unionized(logd, logp)
+        if expected is None:
+            ok = result is None
+        else:
+            ok = result is not None and abs(result - expected) < 0.0002
+        status = "PASS" if ok else "FAIL"
+        if not ok:
+            all_ok = False
+        print(f"  [{status}]  logD={logd!r:>6}, logP={logp!r:>6}  →  {result!r:>10}  (expected {expected!r})  | {desc}")
+
+    print("=" * 60)
+    print("All tests PASSED" if all_ok else "SOME TESTS FAILED")
+    print("=" * 60)
