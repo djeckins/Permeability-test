@@ -275,55 +275,66 @@ st.markdown(
 )
 
 # ── Constants ─────────────────────────────────────────────────────────────────
+
+# Legacy status columns (used for backward-compat Excel colouring)
 _STATUS_COLS = [
     "mw_status", "logd_status", "tpsa_status", "hbd_status",
     "hba_status", "rotb_status", "hac_status", "formal_charge_status",
     "ionization_status",
 ]
 
-# Numeric column → its status column (for direct cell colouring)
-_NUMERIC_STATUS = {
-    "mw":                    "mw_status",
-    "logd":                  "logd_status",
-    "hbd":                   "hbd_status",
-    "hba":                   "hba_status",
-    "rotb":                  "rotb_status",
-    "hac":                   "hac_status",
-    "formal_charge":         "formal_charge_status",
-    "fraction_unionized":    "ionization_status",
+# New classification columns (optimal / acceptable / poor)
+_CLASS_COLS = [
+    "MW_class", "LogD_class", "TPSA_class",
+    "FormalCharge_class", "UnionizedFraction_class",
+    "HBD_class", "RotB_class",
+]
+
+# Numeric column → its NEW class column (drives colour-coding in the table)
+_NUMERIC_CLASS = {
+    "mw":                 "MW_class",
+    "logd":               "LogD_class",
+    "tpsa":               "TPSA_class",
+    "formal_charge":      "FormalCharge_class",
+    "fraction_unionized": "UnionizedFraction_class",
+    "hbd":                "HBD_class",
+    "rotb":               "RotB_class",
 }
 
-# Columns shown in the Streamlit table (pKa, ionization class, cLogP and LogD method hidden)
+# Columns shown in the Streamlit results table
 _DISPLAY_COLS = [
     "name",
-    "mw",
-    "hba",
-    "hbd",
-    "rotb",
-    "hac",
-    "logd",
-    "fraction_unionized",
-    "formal_charge",
-    "final_result",
+    # ── Raw descriptors ──────────────────────────────────────────────────────
+    "mw", "tpsa", "hbd", "rotb",
+    "hba", "hac",               # informational — no colour coding
+    "logd", "fraction_unionized", "formal_charge",
+    # ── New classification columns ───────────────────────────────────────────
+    "MW_class", "LogD_class", "TPSA_class",
+    "FormalCharge_class", "UnionizedFraction_class",
+    "HBD_class", "RotB_class",
+    # ── Summary ──────────────────────────────────────────────────────────────
+    "WeightedScore", "CorePoorCount", "FinalDecision",
 ]
 
 _CELL_CSS = {
-    "optimal":    "background-color:#c8e6c9;color:#1b5e20",
-    "suboptimal": "background-color:#fff9c4;color:#e65100",
-    "poor":       "background-color:#ffcdd2;color:#b71c1c",
-    "PASS":       "background-color:#a5d6a7;color:#1b5e20;font-weight:bold",
-    "BORDERLINE": "background-color:#ffe082;color:#e65100;font-weight:bold",
-    "FAIL":       "background-color:#ef9a9a;color:#b71c1c;font-weight:bold",
+    "optimal":       "background-color:#c8e6c9;color:#1b5e20",
+    "acceptable":    "background-color:#fff9c4;color:#e65100",   # new term
+    "suboptimal":    "background-color:#fff9c4;color:#e65100",   # legacy alias
+    "poor":          "background-color:#ffcdd2;color:#b71c1c",
+    "PASS":          "background-color:#a5d6a7;color:#1b5e20;font-weight:bold",
+    "BORDERLINE":    "background-color:#ffe082;color:#e65100;font-weight:bold",
+    "FAIL":          "background-color:#ef9a9a;color:#b71c1c;font-weight:bold",
     "invalid_input": "background-color:#e0e0e0;color:#616161;font-weight:bold",
 }
 
 _XLSX_FILLS = {
-    "optimal":    PatternFill("solid", fgColor="C8E6C9"),
-    "suboptimal": PatternFill("solid", fgColor="FFF9C4"),
-    "poor":       PatternFill("solid", fgColor="FFCDD2"),
-    "PASS":       PatternFill("solid", fgColor="A5D6A7"),
-    "BORDERLINE": PatternFill("solid", fgColor="FFE082"),
-    "FAIL":       PatternFill("solid", fgColor="EF9A9A"),
+    "optimal":       PatternFill("solid", fgColor="C8E6C9"),
+    "acceptable":    PatternFill("solid", fgColor="FFF9C4"),
+    "suboptimal":    PatternFill("solid", fgColor="FFF9C4"),
+    "poor":          PatternFill("solid", fgColor="FFCDD2"),
+    "PASS":          PatternFill("solid", fgColor="A5D6A7"),
+    "BORDERLINE":    PatternFill("solid", fgColor="FFE082"),
+    "FAIL":          PatternFill("solid", fgColor="EF9A9A"),
     "invalid_input": PatternFill("solid", fgColor="E0E0E0"),
 }
 
@@ -336,16 +347,22 @@ def _style_df(df: pd.DataFrame):
 
     styler = df.style
 
-    # Colour final_result cell
-    if "final_result" in df.columns:
-        styler = styler.map(_color, subset=["final_result"])
+    # Colour FinalDecision and legacy final_result
+    for col in ("FinalDecision", "final_result"):
+        if col in df.columns:
+            styler = styler.map(_color, subset=[col])
 
-    # Colour numeric cells directly based on their status column
-    for num_col, status_col in _NUMERIC_STATUS.items():
-        if num_col in df.columns and status_col in df.columns:
+    # Colour new class columns directly (values are optimal/acceptable/poor)
+    visible_class_cols = [c for c in _CLASS_COLS if c in df.columns]
+    if visible_class_cols:
+        styler = styler.map(_color, subset=visible_class_cols)
+
+    # Colour numeric columns via their corresponding class column
+    for num_col, cls_col in _NUMERIC_CLASS.items():
+        if num_col in df.columns and cls_col in df.columns:
             styler = styler.apply(
-                lambda col, sc=status_col: [
-                    _CELL_CSS.get(str(df.at[i, sc]), "") for i in col.index
+                lambda col, cc=cls_col: [
+                    _CELL_CSS.get(str(df.at[i, cc]), "") for i in col.index
                 ],
                 subset=[num_col],
             )
@@ -373,7 +390,7 @@ def _build_xlsx(df: pd.DataFrame) -> bytes:
     headers = [c.value for c in ws[1]]
     colour_cols = {
         col: headers.index(col) + 1
-        for col in _STATUS_COLS + ["final_result"]
+        for col in _STATUS_COLS + _CLASS_COLS + ["FinalDecision", "final_result"]
         if col in headers
     }
 
@@ -494,14 +511,13 @@ st.markdown(
 
 # ── Criteria overview strip ──────────────────────────────────────────────────
 _CRITERIA_PILLS = [
-    ("⚖️", "MW"),
-    ("🧪", "LogP / LogD"),
-    ("◉", "TPSA"),
-    ("🔗", "HBD & HBA"),
-    ("↻", "Rotatable Bonds"),
-    ("⬢", "Heavy Atom Count"),
-    ("±", "Formal Charge"),
-    ("⚡", "Ionization at pH"),
+    ("⚖️", "MW  ×20"),
+    ("🧪", "LogD  ×20"),
+    ("◉",  "TPSA  ×15"),
+    ("±",  "Formal Charge  ×15"),
+    ("⚡", "Ionization  ×15"),
+    ("🔗", "HBD  ×5"),
+    ("↻",  "Rotatable Bonds  ×5"),
 ]
 _pills_html = "".join(
     f'<span class="eb-pill"><span class="pill-icon">{icon}</span>{label}</span>'
@@ -626,18 +642,26 @@ if run:
         height=min(40 + len(df) * 36, 600),
         column_order=display_order,
         column_config={
-            "name": st.column_config.TextColumn("Compound"),
-            "mw": st.column_config.NumberColumn("MW"),
-            "hba": st.column_config.NumberColumn("HBA"),
-            "hbd": st.column_config.NumberColumn("HBD"),
-            "rotb": st.column_config.NumberColumn("RB"),
-            "hac": st.column_config.NumberColumn("HAC"),
-            "logd": st.column_config.NumberColumn(f"LogD (pH {ph_input:.1f})"),
-            "fraction_unionized": st.column_config.NumberColumn(
-                f"Fraction Unionized (pH {ph_input:.1f})"
-            ),
-            "formal_charge": st.column_config.NumberColumn("Formal Charge"),
-            "final_result": st.column_config.TextColumn("Final Result"),
+            "name":                   st.column_config.TextColumn("Compound"),
+            "mw":                     st.column_config.NumberColumn("MW (Da)"),
+            "tpsa":                   st.column_config.NumberColumn("TPSA (Å²)"),
+            "hbd":                    st.column_config.NumberColumn("HBD"),
+            "rotb":                   st.column_config.NumberColumn("RotB"),
+            "hba":                    st.column_config.NumberColumn("HBA"),
+            "hac":                    st.column_config.NumberColumn("HAC"),
+            "logd":                   st.column_config.NumberColumn(f"LogD (pH {ph_input:.1f})"),
+            "fraction_unionized":     st.column_config.NumberColumn("f Unionized"),
+            "formal_charge":          st.column_config.NumberColumn("Formal Charge"),
+            "MW_class":               st.column_config.TextColumn("MW Class"),
+            "LogD_class":             st.column_config.TextColumn("LogD Class"),
+            "TPSA_class":             st.column_config.TextColumn("TPSA Class"),
+            "FormalCharge_class":     st.column_config.TextColumn("Charge Class"),
+            "UnionizedFraction_class":st.column_config.TextColumn("Ioniz. Class"),
+            "HBD_class":              st.column_config.TextColumn("HBD Class"),
+            "RotB_class":             st.column_config.TextColumn("RotB Class"),
+            "WeightedScore":          st.column_config.NumberColumn("Score /100"),
+            "CorePoorCount":          st.column_config.NumberColumn("Core Poor"),
+            "FinalDecision":          st.column_config.TextColumn("Decision"),
         },
     )
 
@@ -659,24 +683,27 @@ st.markdown("<div style='height:1rem'/>", unsafe_allow_html=True)
 with st.expander("📋  Screening criteria reference"):
     st.markdown(
         """
-        Per-criterion classification: 🟢 **optimal** · 🟡 **suboptimal** · 🔴 **poor**
+        Per-criterion classification: 🟢 **optimal** · 🟡 **acceptable** · 🔴 **poor**
 
-        Overall result: **PASS** (all optimal) · **BORDERLINE** (≥ 1 suboptimal, no poor) · **FAIL** (≥ 1 poor)
+        **Scoring** — optimal = full weight · acceptable = ½ weight · poor = 0.
+        Maximum raw score = 95; normalised to 100.
 
-        | Criterion | Optimal | Suboptimal | Poor |
-        |:---|:---:|:---:|:---:|
-        | **MW** | ≤ 500 Da | 500–600 Da | > 600 Da |
-        | **LogD / cLogP** | 1–3 | 0.5–1 or 3–5 | < 0.5 or > 5 |
-        | **TPSA** | < 60 Å² | 60–130 Å² | > 130 Å² |
-        | **HBD** | 0–3 | 4–5 | > 5 |
-        | **HBA** | 2–8 | 8–10 | > 10 |
-        | **RotB** | < 10 | 10–15 | > 15 |
-        | **HAC** | < 30 | 30–50 | > 50 |
-        | **Formal charge** | 0 | ±1 | ≥ ±2 |
-        | **Ionization (pH 5.5)** | f_unionized ≥ 0.8 | 0.5–0.8 | < 0.5 |
+        | Criterion | Weight | Optimal | Acceptable | Poor |
+        |:---|:---:|:---:|:---:|:---:|
+        | **MW** ⭐ | 20 | ≤ 400 Da | 400–500 Da | > 500 Da |
+        | **LogD** ⭐ | 20 | 1.0–3.5 | 0.5–1.0 or 3.5–4.5 | < 0.5 or > 4.5 |
+        | **TPSA** ⭐ | 15 | ≤ 90 Å² | 90–120 Å² | > 120 Å² |
+        | **Formal charge** ⭐ | 15 | 0 | ±1 | ≥ ±2 |
+        | **Fraction unionized** ⭐ | 15 | ≥ 0.40 | 0.10–0.40 | < 0.10 |
+        | **HBD** | 5 | ≤ 2 | 3 | ≥ 4 |
+        | **Rotatable bonds** | 5 | ≤ 8 | 9–12 | > 12 |
 
-        > **Ionization is mandatory** — a molecule that is mostly ionised at the stratum corneum
-        > surface pH (5.5) automatically results in FAIL regardless of other properties.
+        ⭐ = core criterion · HBA and HAC are informational only.
+
+        **Decision rules:**
+        - **PASS** — WeightedScore ≥ 75 **and** CorePoorCount = 0
+        - **BORDERLINE** — score 55–74, or score ≥ 75 with CorePoorCount = 1
+        - **FAIL** — score < 55, or CorePoorCount ≥ 2
 
         pKa predicted using **pKaLearn** GNN (Genzling et al., 2024, *ChemRxiv*).
         Overridden by `pKa` / `input_pka` SDF property when present.
