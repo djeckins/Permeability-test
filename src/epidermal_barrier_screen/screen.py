@@ -359,6 +359,8 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
         row["unionized"] = _compute_unionized_pct(row.get("logd"), desc.get("clogp"))
 
         # ── Legacy status columns (backward-compat / table colour-coding) ─────
+        # ionization_status uses the primary ionization value: unionized (%)
+        # which is computed from the final logD (after any SDF override).
         row["mw_status"]            = _mw_status(desc["mw"])
         row["logd_status"]          = _logd_status(row["logd"])
         row["tpsa_status"]          = _tpsa_status(desc["tpsa"])
@@ -367,15 +369,20 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
         row["rotb_status"]          = _rotb_status(desc["rotb"])
         row["hac_status"]           = _hac_status(desc["hac"])        # informational
         row["formal_charge_status"] = _charge_status(desc["formal_charge"])
-        row["ionization_status"]    = _ionization_status(row["fraction_unionized"])
+        row["ionization_status"]    = _ionization_status(row["unionized"])
 
         # ── New classification columns  (optimal / acceptable / poor) ─────────
+        # UnionizedFraction is scored from row["unionized"] (logD-logP based, %)
+        # because that column already reflects any experimental logD override.
+        # When unionized is None (pathological: logD or logP absent), fall back
+        # to fraction_unionized (HHB-based %) so scoring is never silently empty.
+        _u_pct = row["unionized"] if row["unionized"] is not None else row.get("fraction_unionized")
         classes: dict[str, str] = {
             "MW":                _classify_mw(desc["mw"]),
             "LogD":              _classify_logd(row["logd"]),
             "TPSA":              _classify_tpsa(desc["tpsa"]),
             "FormalCharge":      _classify_formal_charge(desc["formal_charge"]),
-            "UnionizedFraction": _classify_unionized(row["fraction_unionized"]),
+            "UnionizedFraction": _classify_unionized(_u_pct),
             "HBD":               _classify_hbd(desc["hbd"]),
             "HBA":               _classify_hba(desc["hba"]),
             "RotB":              _classify_rotb(desc["rotb"]),

@@ -291,25 +291,31 @@ _CLASS_COLS = [
 ]
 
 # Numeric column → its NEW class column (drives colour-coding in the table)
+# unionized is the primary ionization display column (logD-logP based, %)
 _NUMERIC_CLASS = {
-    "mw":                 "MW_class",
-    "logd":               "LogD_class",
-    "tpsa":               "TPSA_class",
-    "formal_charge":      "FormalCharge_class",
-    "fraction_unionized": "UnionizedFraction_class",
-    "hbd":                "HBD_class",
-    "hba":                "HBA_class",
-    "rotb":               "RotB_class",
+    "mw":          "MW_class",
+    "logd":        "LogD_class",
+    "tpsa":        "TPSA_class",
+    "formal_charge": "FormalCharge_class",
+    "unionized":   "UnionizedFraction_class",   # primary ionization column
+    "hbd":         "HBD_class",
+    "hba":         "HBA_class",
+    "rotb":        "RotB_class",
 }
 
 # Columns shown in the Streamlit results table
+# fraction_unionized (HHB raw) is kept in the Excel export but NOT shown here
+# to avoid two identical columns that cause "many identical numbers".
 _DISPLAY_COLS = [
     "name",
     # ── Raw descriptors ──────────────────────────────────────────────────────
     "mw", "tpsa", "hbd", "hba", "rotb",
     "hac",                      # informational — no colour coding
     "clogp",                    # logP (RDKit cLogP, pH-independent)
-    "logd", "unionized", "fraction_unionized", "formal_charge",
+    "logd",
+    # unionized = 10^(logD - logP) × 100 %  — primary ionization display
+    "unionized",
+    "formal_charge",
     # ── New classification columns ───────────────────────────────────────────
     "MW_class", "LogD_class", "TPSA_class",
     "FormalCharge_class", "UnionizedFraction_class",
@@ -660,8 +666,8 @@ if run:
             "TPSA_class":             st.column_config.TextColumn("TPSA Class"),
             "FormalCharge_class":     st.column_config.TextColumn("Charge Class"),
             "UnionizedFraction_class":st.column_config.TextColumn("Ioniz. Class"),
-            "clogp":                  st.column_config.NumberColumn("logP (cLogP)"),
-            "unionized":              st.column_config.NumberColumn("Unionized logD/logP (%)"),
+            "clogp":                  st.column_config.NumberColumn("logP"),
+            "unionized":              st.column_config.NumberColumn("Unionized (%)"),
             "HBD_class":              st.column_config.TextColumn("HBD Class"),
             "HBA_class":              st.column_config.TextColumn("HBA Class"),
             "RotB_class":             st.column_config.TextColumn("RotB Class"),
