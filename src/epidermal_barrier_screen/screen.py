@@ -21,6 +21,46 @@ from epidermal_barrier_screen.ionization import (
 )
 
 # ---------------------------------------------------------------------------
+# PAINS and Brenk structural alert filters  (RDKit FilterCatalog)
+# ---------------------------------------------------------------------------
+from rdkit.Chem.FilterCatalog import FilterCatalog, FilterCatalogParams
+
+_pains_catalog: FilterCatalog | None = None
+_brenk_catalog: FilterCatalog | None = None
+
+
+def _get_pains_catalog() -> FilterCatalog:
+    global _pains_catalog
+    if _pains_catalog is None:
+        params = FilterCatalogParams()
+        params.AddCatalog(FilterCatalogParams.FilterCatalogs.PAINS_A)
+        params.AddCatalog(FilterCatalogParams.FilterCatalogs.PAINS_B)
+        params.AddCatalog(FilterCatalogParams.FilterCatalogs.PAINS_C)
+        _pains_catalog = FilterCatalog(params)
+    return _pains_catalog
+
+
+def _get_brenk_catalog() -> FilterCatalog:
+    global _brenk_catalog
+    if _brenk_catalog is None:
+        params = FilterCatalogParams()
+        params.AddCatalog(FilterCatalogParams.FilterCatalogs.BRENK)
+        _brenk_catalog = FilterCatalog(params)
+    return _brenk_catalog
+
+
+def _check_pains(mol) -> str:
+    """Return the PAINS alert name if matched, or empty string."""
+    entry = _get_pains_catalog().GetFirstMatch(mol)
+    return entry.GetDescription() if entry else ""
+
+
+def _check_brenk(mol) -> str:
+    """Return the Brenk alert name if matched, or empty string."""
+    entry = _get_brenk_catalog().GetFirstMatch(mol)
+    return entry.GetDescription() if entry else ""
+
+# ---------------------------------------------------------------------------
 # Scoring configuration
 # ---------------------------------------------------------------------------
 
@@ -300,6 +340,13 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
         desc = calculate(mol)
         row.update(desc)
 
+        # ── PAINS and Brenk structural alerts ────────────────────────────────
+        pains_hit = _check_pains(mol)
+        brenk_hit = _check_brenk(mol)
+        row["PAINS"]           = pains_hit
+        row["Toxicity (BRENK)"] = brenk_hit
+        row["Flag"]            = "\U0001f6a9" if (pains_hit or brenk_hit) else ""
+
         # ── pKa / ionization (unchanged calculation engine) ───────────────────
         smiles    = rec.get("canonical_smiles") or ""
         input_pka = rec.get("input_pka")
@@ -473,6 +520,10 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
         "CorePoorCount",
         "FinalDecision",
         "final_result",
+        # ── Structural alerts ─────────────────────────────────────────────────
+        "PAINS",
+        "Toxicity (BRENK)",
+        "Flag",
         # ── SMILES ────────────────────────────────────────────────────────────
         "input_smiles",
         "canonical_smiles",
