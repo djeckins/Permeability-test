@@ -343,9 +343,9 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
         # ── PAINS and Brenk structural alerts ────────────────────────────────
         pains_hit = _check_pains(mol)
         brenk_hit = _check_brenk(mol)
-        row["PAINS"]           = pains_hit
-        row["Toxicity (BRENK)"] = brenk_hit
-        row["Flag"]            = "\U0001f6a9" if (pains_hit or brenk_hit) else ""
+        # Show "alert_name 🚩" when flagged, empty string when clean
+        row["PAINS"]            = f"{pains_hit} \U0001f6a9" if pains_hit else ""
+        row["Toxicity (BRENK)"] = f"{brenk_hit} \U0001f6a9" if brenk_hit else ""
 
         # ── pKa / ionization (unchanged calculation engine) ───────────────────
         smiles    = rec.get("canonical_smiles") or ""
@@ -523,7 +523,6 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
         # ── Structural alerts ─────────────────────────────────────────────────
         "PAINS",
         "Toxicity (BRENK)",
-        "Flag",
         # ── SMILES ────────────────────────────────────────────────────────────
         "input_smiles",
         "canonical_smiles",
