@@ -310,7 +310,7 @@ _DISPLAY_COLS = [
     "mw", "tpsa", "hbd", "hba", "rotb",
     "logd", "formal_charge",
     "WeightedScore",
-    "PAINS", "Toxicity (BRENK)", "Flag",
+    "PAINS", "Toxicity (BRENK)",
 ]
 
 _CELL_CSS = {
@@ -355,10 +355,10 @@ def _style_df(df: pd.DataFrame):
         return "background-color:#ffcdd2;color:#b71c1c;font-weight:bold"
 
     def _alert_color(val):
-        """Red background for non-empty structural alert cells."""
+        """Red when flagged (non-empty), green when clean (empty)."""
         if val and str(val).strip():
-            return "background-color:#ffcdd2;color:#b71c1c"
-        return ""
+            return "background-color:#ffcdd2;color:#b71c1c;font-weight:bold"
+        return "background-color:#c8e6c9;color:#1b5e20"
 
     styler = df.style
 
@@ -376,8 +376,8 @@ def _style_df(df: pd.DataFrame):
     if "WeightedScore" in df.columns:
         styler = styler.map(_score_color, subset=["WeightedScore"])
 
-    # Colour PAINS / Brenk / Flag alert columns
-    for alert_col in ("PAINS", "Toxicity (BRENK)", "Flag"):
+    # Colour PAINS / Brenk alert columns: green = passed, red = flagged
+    for alert_col in ("PAINS", "Toxicity (BRENK)"):
         if alert_col in df.columns:
             styler = styler.map(_alert_color, subset=[alert_col])
 
@@ -411,10 +411,10 @@ def _build_xlsx(df: pd.DataFrame) -> bytes:
     # Score column index (for numeric-based colour)
     score_col_idx = (headers.index("WeightedScore") + 1) if "WeightedScore" in headers else None
 
-    # Alert column indices (PAINS, Brenk, Flag — red when non-empty)
+    # Alert column indices (PAINS, Brenk — red when flagged, green when clean)
     alert_col_idxs = [
         headers.index(c) + 1
-        for c in ("PAINS", "Toxicity (BRENK)", "Flag")
+        for c in ("PAINS", "Toxicity (BRENK)")
         if c in headers
     ]
 
@@ -448,11 +448,14 @@ def _build_xlsx(df: pd.DataFrame) -> bytes:
             except (TypeError, ValueError):
                 pass
 
-        # Alert columns — red when non-empty
+        # Alert columns — red when flagged, green when clean
+        _ALERT_PASS_FILL = PatternFill("solid", fgColor="C8E6C9")
         for aidx in alert_col_idxs:
             acell = row[aidx - 1]
             if acell.value and str(acell.value).strip():
                 acell.fill = _ALERT_FILL
+            else:
+                acell.fill = _ALERT_PASS_FILL
 
         # Zebra stripe on non-coloured cells
         coloured = set(colour_cols.values())
@@ -576,8 +579,8 @@ _CRITERIA_PILLS = [
     ("🔗", "HBD  ×7"),
     ("🔗", "HBA  ×7"),
     ("↻",  "RotB  ×10"),
-    ("🚩", "PAINS"),
-    ("🚩", "Brenk"),
+    ("⚠️", "PAINS"),
+    ("⚠️", "Brenk"),
 ]
 _pills_html = "".join(
     f'<span class="eb-pill"><span class="pill-icon">{icon}</span>{label}</span>'
@@ -713,7 +716,6 @@ if run:
             "WeightedScore":    st.column_config.NumberColumn("Score /100"),
             "PAINS":            st.column_config.TextColumn("PAINS"),
             "Toxicity (BRENK)": st.column_config.TextColumn("Toxicity (BRENK)"),
-            "Flag":             st.column_config.TextColumn("Flag"),
         },
     )
 
