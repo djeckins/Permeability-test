@@ -284,38 +284,33 @@ _STATUS_COLS = [
 ]
 
 # New classification columns (optimal / acceptable / poor)
+# These are in the full DataFrame (Excel download) but NOT shown in the web table.
 _CLASS_COLS = [
     "MW_class", "LogD_class", "TPSA_class",
     "FormalCharge_class", "UnionizedFraction_class",
     "HBD_class", "HBA_class", "RotB_class",
 ]
 
-# Numeric column → its NEW class column (drives colour-coding in the table)
+# Numeric column → its class column (used for colour-coding numeric cells)
 _NUMERIC_CLASS = {
-    "mw":                 "MW_class",
-    "logd":               "LogD_class",
-    "tpsa":               "TPSA_class",
-    "formal_charge":      "FormalCharge_class",
-    "fraction_unionized": "UnionizedFraction_class",
-    "hbd":                "HBD_class",
-    "hba":                "HBA_class",
-    "rotb":               "RotB_class",
+    "mw":             "MW_class",
+    "logd":           "LogD_class",
+    "tpsa":           "TPSA_class",
+    "formal_charge":  "FormalCharge_class",
+    "hbd":            "HBD_class",
+    "hba":            "HBA_class",
+    "rotb":           "RotB_class",
 }
 
-# Columns shown in the Streamlit results table
+# Columns shown in the Streamlit results table.
+# Removed: all _class columns, CorePoorCount, FinalDecision, unionized, hac, clogp.
+# Full data (including removed cols) stays in the Excel download.
 _DISPLAY_COLS = [
     "name",
-    # ── Raw descriptors ──────────────────────────────────────────────────────
     "mw", "tpsa", "hbd", "hba", "rotb",
-    "hac",                      # informational — no colour coding
-    "clogp",                    # logP (RDKit cLogP, pH-independent)
-    "logd", "unionized", "fraction_unionized", "formal_charge",
-    # ── New classification columns ───────────────────────────────────────────
-    "MW_class", "LogD_class", "TPSA_class",
-    "FormalCharge_class", "UnionizedFraction_class",
-    "HBD_class", "HBA_class", "RotB_class",
-    # ── Summary ──────────────────────────────────────────────────────────────
-    "WeightedScore", "CorePoorCount", "FinalDecision",
+    "logd", "formal_charge",
+    "WeightedScore",
+    "PAINS", "Toxicity (BRENK)", "Flag",
 ]
 
 _CELL_CSS = {
@@ -347,17 +342,25 @@ def _style_df(df: pd.DataFrame):
     def _color(val):
         return _CELL_CSS.get(str(val), "")
 
+    def _score_color(val):
+        """Colour the WeightedScore cell by PASS/BORDERLINE/FAIL thresholds."""
+        try:
+            v = float(val)
+        except (TypeError, ValueError):
+            return ""
+        if v >= 75:
+            return "background-color:#c8e6c9;color:#1b5e20;font-weight:bold"
+        if v >= 55:
+            return "background-color:#fff9c4;color:#e65100;font-weight:bold"
+        return "background-color:#ffcdd2;color:#b71c1c;font-weight:bold"
+
+    def _alert_color(val):
+        """Red background for non-empty structural alert cells."""
+        if val and str(val).strip():
+            return "background-color:#ffcdd2;color:#b71c1c"
+        return ""
+
     styler = df.style
-
-    # Colour FinalDecision and legacy final_result
-    for col in ("FinalDecision", "final_result"):
-        if col in df.columns:
-            styler = styler.map(_color, subset=[col])
-
-    # Colour new class columns directly (values are optimal/acceptable/poor)
-    visible_class_cols = [c for c in _CLASS_COLS if c in df.columns]
-    if visible_class_cols:
-        styler = styler.map(_color, subset=visible_class_cols)
 
     # Colour numeric columns via their corresponding class column
     for num_col, cls_col in _NUMERIC_CLASS.items():
@@ -368,6 +371,15 @@ def _style_df(df: pd.DataFrame):
                 ],
                 subset=[num_col],
             )
+
+    # Colour WeightedScore by numeric value
+    if "WeightedScore" in df.columns:
+        styler = styler.map(_score_color, subset=["WeightedScore"])
+
+    # Colour PAINS / Brenk / Flag alert columns
+    for alert_col in ("PAINS", "Toxicity (BRENK)", "Flag"):
+        if alert_col in df.columns:
+            styler = styler.map(_alert_color, subset=[alert_col])
 
     return styler
 
@@ -388,7 +400,7 @@ def _build_xlsx(df: pd.DataFrame) -> bytes:
         cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
     ws.row_dimensions[1].height = 36
 
-    # Resolve which columns need colour
+    # Resolve which columns need colour (status / class / decision)
     headers = [c.value for c in ws[1]]
     colour_cols = {
         col: headers.index(col) + 1
@@ -396,16 +408,59 @@ def _build_xlsx(df: pd.DataFrame) -> bytes:
         if col in headers
     }
 
+    # Score column index (for numeric-based colour)
+    score_col_idx = (headers.index("WeightedScore") + 1) if "WeightedScore" in headers else None
+
+    # Alert column indices (PAINS, Brenk, Flag — red when non-empty)
+    alert_col_idxs = [
+        headers.index(c) + 1
+        for c in ("PAINS", "Toxicity (BRENK)", "Flag")
+        if c in headers
+    ]
+
+    _SCORE_FILLS = {
+        "pass": PatternFill("solid", fgColor="C8E6C9"),
+        "border": PatternFill("solid", fgColor="FFF9C4"),
+        "fail": PatternFill("solid", fgColor="FFCDD2"),
+    }
+    _ALERT_FILL = PatternFill("solid", fgColor="FFCDD2")
+
     # Apply row colours
     for row in ws.iter_rows(min_row=2):
+        # Status / class / decision columns
         for col_name, col_idx in colour_cols.items():
             cell = row[col_idx - 1]
             fill = _XLSX_FILLS.get(str(cell.value))
             if fill:
                 cell.fill = fill
+
+        # WeightedScore column
+        if score_col_idx:
+            scell = row[score_col_idx - 1]
+            try:
+                sv = float(scell.value)
+                if sv >= 75:
+                    scell.fill = _SCORE_FILLS["pass"]
+                elif sv >= 55:
+                    scell.fill = _SCORE_FILLS["border"]
+                else:
+                    scell.fill = _SCORE_FILLS["fail"]
+            except (TypeError, ValueError):
+                pass
+
+        # Alert columns — red when non-empty
+        for aidx in alert_col_idxs:
+            acell = row[aidx - 1]
+            if acell.value and str(acell.value).strip():
+                acell.fill = _ALERT_FILL
+
         # Zebra stripe on non-coloured cells
+        coloured = set(colour_cols.values())
+        if score_col_idx:
+            coloured.add(score_col_idx)
+        coloured.update(alert_col_idxs)
         for cell in row:
-            if cell.column not in colour_cols.values():
+            if cell.column not in coloured:
                 if cell.row % 2 == 0:
                     cell.fill = PatternFill("solid", fgColor="F5F8FF")
             cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -521,6 +576,8 @@ _CRITERIA_PILLS = [
     ("🔗", "HBD  ×7"),
     ("🔗", "HBA  ×7"),
     ("↻",  "RotB  ×10"),
+    ("🚩", "PAINS"),
+    ("🚩", "Brenk"),
 ]
 _pills_html = "".join(
     f'<span class="eb-pill"><span class="pill-icon">{icon}</span>{label}</span>'
@@ -645,29 +702,18 @@ if run:
         height=min(40 + len(df) * 36, 600),
         column_order=display_order,
         column_config={
-            "name":                   st.column_config.TextColumn("Compound"),
-            "mw":                     st.column_config.NumberColumn("MW (Da)"),
-            "tpsa":                   st.column_config.NumberColumn("TPSA (Å²)"),
-            "hbd":                    st.column_config.NumberColumn("HBD"),
-            "rotb":                   st.column_config.NumberColumn("RotB"),
-            "hba":                    st.column_config.NumberColumn("HBA"),
-            "hac":                    st.column_config.NumberColumn("HAC"),
-            "logd":                   st.column_config.NumberColumn(f"LogD (pH {ph_input:.1f})"),
-            "fraction_unionized":     st.column_config.NumberColumn("Unionized HHB (%)"),
-            "formal_charge":          st.column_config.NumberColumn("Formal Charge"),
-            "MW_class":               st.column_config.TextColumn("MW Class"),
-            "LogD_class":             st.column_config.TextColumn("LogD Class"),
-            "TPSA_class":             st.column_config.TextColumn("TPSA Class"),
-            "FormalCharge_class":     st.column_config.TextColumn("Charge Class"),
-            "UnionizedFraction_class":st.column_config.TextColumn("Ioniz. Class"),
-            "clogp":                  st.column_config.NumberColumn("logP (cLogP)"),
-            "unionized":              st.column_config.NumberColumn("Unionized logD/logP (%)"),
-            "HBD_class":              st.column_config.TextColumn("HBD Class"),
-            "HBA_class":              st.column_config.TextColumn("HBA Class"),
-            "RotB_class":             st.column_config.TextColumn("RotB Class"),
-            "WeightedScore":          st.column_config.NumberColumn("Score /100"),
-            "CorePoorCount":          st.column_config.NumberColumn("Core Poor"),
-            "FinalDecision":          st.column_config.TextColumn("Decision"),
+            "name":             st.column_config.TextColumn("Compound"),
+            "mw":               st.column_config.NumberColumn("MW (Da)"),
+            "tpsa":             st.column_config.NumberColumn("TPSA (Å²)"),
+            "hbd":              st.column_config.NumberColumn("HBD"),
+            "hba":              st.column_config.NumberColumn("HBA"),
+            "rotb":             st.column_config.NumberColumn("RotB"),
+            "logd":             st.column_config.NumberColumn(f"LogD (pH {ph_input:.1f})"),
+            "formal_charge":    st.column_config.NumberColumn("Formal Charge"),
+            "WeightedScore":    st.column_config.NumberColumn("Score /100"),
+            "PAINS":            st.column_config.TextColumn("PAINS"),
+            "Toxicity (BRENK)": st.column_config.TextColumn("Toxicity (BRENK)"),
+            "Flag":             st.column_config.TextColumn("Flag"),
         },
     )
 

@@ -21,6 +21,46 @@ from epidermal_barrier_screen.ionization import (
 )
 
 # ---------------------------------------------------------------------------
+# PAINS and Brenk structural alert filters  (RDKit FilterCatalog)
+# ---------------------------------------------------------------------------
+from rdkit.Chem.FilterCatalog import FilterCatalog, FilterCatalogParams
+
+_pains_catalog: FilterCatalog | None = None
+_brenk_catalog: FilterCatalog | None = None
+
+
+def _get_pains_catalog() -> FilterCatalog:
+    global _pains_catalog
+    if _pains_catalog is None:
+        params = FilterCatalogParams()
+        params.AddCatalog(FilterCatalogParams.FilterCatalogs.PAINS_A)
+        params.AddCatalog(FilterCatalogParams.FilterCatalogs.PAINS_B)
+        params.AddCatalog(FilterCatalogParams.FilterCatalogs.PAINS_C)
+        _pains_catalog = FilterCatalog(params)
+    return _pains_catalog
+
+
+def _get_brenk_catalog() -> FilterCatalog:
+    global _brenk_catalog
+    if _brenk_catalog is None:
+        params = FilterCatalogParams()
+        params.AddCatalog(FilterCatalogParams.FilterCatalogs.BRENK)
+        _brenk_catalog = FilterCatalog(params)
+    return _brenk_catalog
+
+
+def _check_pains(mol) -> str:
+    """Return the PAINS alert name if matched, or empty string."""
+    entry = _get_pains_catalog().GetFirstMatch(mol)
+    return entry.GetDescription() if entry else ""
+
+
+def _check_brenk(mol) -> str:
+    """Return the Brenk alert name if matched, or empty string."""
+    entry = _get_brenk_catalog().GetFirstMatch(mol)
+    return entry.GetDescription() if entry else ""
+
+# ---------------------------------------------------------------------------
 # Scoring configuration
 # ---------------------------------------------------------------------------
 
@@ -300,6 +340,13 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
         desc = calculate(mol)
         row.update(desc)
 
+        # ── PAINS and Brenk structural alerts ────────────────────────────────
+        pains_hit = _check_pains(mol)
+        brenk_hit = _check_brenk(mol)
+        row["PAINS"]           = pains_hit
+        row["Toxicity (BRENK)"] = brenk_hit
+        row["Flag"]            = "\U0001f6a9" if (pains_hit or brenk_hit) else ""
+
         # ── pKa / ionization (unchanged calculation engine) ───────────────────
         smiles    = rec.get("canonical_smiles") or ""
         input_pka = rec.get("input_pka")
@@ -359,6 +406,8 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
         row["unionized"] = _compute_unionized_pct(row.get("logd"), desc.get("clogp"))
 
         # ── Legacy status columns (backward-compat / table colour-coding) ─────
+        # ionization_status uses the primary ionization value: unionized (%)
+        # which is computed from the final logD (after any SDF override).
         row["mw_status"]            = _mw_status(desc["mw"])
         row["logd_status"]          = _logd_status(row["logd"])
         row["tpsa_status"]          = _tpsa_status(desc["tpsa"])
@@ -367,15 +416,20 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
         row["rotb_status"]          = _rotb_status(desc["rotb"])
         row["hac_status"]           = _hac_status(desc["hac"])        # informational
         row["formal_charge_status"] = _charge_status(desc["formal_charge"])
-        row["ionization_status"]    = _ionization_status(row["fraction_unionized"])
+        row["ionization_status"]    = _ionization_status(row["unionized"])
 
         # ── New classification columns  (optimal / acceptable / poor) ─────────
+        # UnionizedFraction is scored from row["unionized"] (logD-logP based, %)
+        # because that column already reflects any experimental logD override.
+        # When unionized is None (pathological: logD or logP absent), fall back
+        # to fraction_unionized (HHB-based %) so scoring is never silently empty.
+        _u_pct = row["unionized"] if row["unionized"] is not None else row.get("fraction_unionized")
         classes: dict[str, str] = {
             "MW":                _classify_mw(desc["mw"]),
             "LogD":              _classify_logd(row["logd"]),
             "TPSA":              _classify_tpsa(desc["tpsa"]),
             "FormalCharge":      _classify_formal_charge(desc["formal_charge"]),
-            "UnionizedFraction": _classify_unionized(row["fraction_unionized"]),
+            "UnionizedFraction": _classify_unionized(_u_pct),
             "HBD":               _classify_hbd(desc["hbd"]),
             "HBA":               _classify_hba(desc["hba"]),
             "RotB":              _classify_rotb(desc["rotb"]),
@@ -466,6 +520,10 @@ def screen_records(records: list[dict[str, Any]], ph: float = PH_SC) -> pd.DataF
         "CorePoorCount",
         "FinalDecision",
         "final_result",
+        # ── Structural alerts ─────────────────────────────────────────────────
+        "PAINS",
+        "Toxicity (BRENK)",
+        "Flag",
         # ── SMILES ────────────────────────────────────────────────────────────
         "input_smiles",
         "canonical_smiles",
